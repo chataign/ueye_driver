@@ -18,6 +18,30 @@ namespace ueye
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
+std::vector<UEYE_CAMERA_INFO> get_camera_list()
+{
+    std::vector<UEYE_CAMERA_INFO> cameras;
+    
+    INT N;
+    UEYE_TRY( is_GetNumberOfCameras, &N );
+
+    cameras.resize(N);
+    if ( cameras.empty() ) return cameras;
+    
+    UEYE_CAMERA_LIST* cam_list = (UEYE_CAMERA_LIST*) new BYTE [sizeof (DWORD) + N * sizeof (UEYE_CAMERA_INFO) ];
+    cam_list->dwCount = N;  
+    UEYE_TRY( is_GetCameraList, cam_list );
+    
+    for ( int i=0; i<N; ++i )
+        cameras[i] = cam_list->uci[i];
+        
+   delete [] cam_list; 
+   return cameras;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
 struct ColorMode
 {
     INT ueye_mode;
@@ -46,12 +70,20 @@ Camera::Camera( int camera_id, uint16_t aoi_width, uint16_t aoi_height,
                 const std::string& encoding, float frame_rate, BinningMode binning )
 : handle_( (HIDS) camera_id )
 {
+    ROS_INFO("opening camera id=%d", camera_id );
     UEYE_TRY( is_InitCamera, (HIDS*) &handle_, NULL );
-    UEYE_TRY( is_SetDisplayMode, handle_, IS_SET_DM_DIB );
     
+    std::vector<UEYE_CAMERA_INFO> cameras = get_camera_list();
+    
+    for ( auto camera : cameras )
+        ROS_INFO("camera_id=%d device_id=%d sensor=%d serial='%s' model='%s'", 
+            camera.dwCameraID, camera.dwDeviceID, camera.dwSensorID, 
+            camera.SerNo, camera.Model );
+        
     double actual_frame_rate=0;
     IS_RECT rect = { 0, 0, aoi_width, aoi_height };
 
+    UEYE_TRY( is_SetDisplayMode, handle_, IS_SET_DM_DIB );
     UEYE_TRY( is_AOI, handle_, IS_AOI_IMAGE_SET_AOI, &rect, sizeof(rect) );
     UEYE_TRY( is_SetFrameRate, handle_, frame_rate, &actual_frame_rate );
     UEYE_TRY( is_SetColorMode, handle_, color_modes.at(encoding).ueye_mode );
@@ -60,7 +92,6 @@ Camera::Camera( int camera_id, uint16_t aoi_width, uint16_t aoi_height,
 //    UEYE_TRY( is_SetSensorScaler, handle_, IS_ENABLE_SENSOR_SCALER, 1.0 );
 
     ROS_INFO("frame rate: requested=%.1f actual=%.1f", frame_rate, actual_frame_rate );
-
     frame_ = std::make_shared<CameraFrame>( *this, aoi_width, aoi_height, encoding );
 
     start_capture( RunMode_FreeRun );
@@ -97,7 +128,7 @@ uint32_t Camera::get_buffer_pitch() const
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-bool Camera::set_gain( uint8_t master_gain )
+bool Camera::set_master_gain( uint8_t master_gain )
 {
     bool supported = is_SetGainBoost( handle_, IS_GET_SUPPORTED_GAINBOOST ) == IS_SET_GAINBOOST_ON;
     if ( !supported ) { ROS_WARN("hardware gain not supported"); return false; }

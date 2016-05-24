@@ -96,7 +96,7 @@ public:
     
     void start_capture( RunMode mode );
     bool is_capturing() const;
-    bool set_gain( uint8_t master_gain );
+    bool set_master_gain( uint8_t master_gain );
     
     const sensor_msgs::CameraInfo& get_info() const { return info_; }
     
