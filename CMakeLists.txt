@@ -14,6 +14,7 @@ catkin_package(
 
 include_directories( ${catkin_INCLUDE_DIRS} )
 add_definitions(-std=c++11)
+set(CMAKE_BUILD_TYPE RelWithDebInfo)
 
 file( GLOB SOURCES src/*.cpp )
 add_executable( ${PROJECT_NAME} ${SOURCES} )
