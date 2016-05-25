@@ -53,7 +53,7 @@ class Camera
 {
     friend class CameraFrame;
 
-    int camera_id_;
+    uint32_t camera_id_;
     std::shared_ptr<CameraFrame> frame_;
     
 public:
@@ -66,7 +66,7 @@ public:
      * @param[in] encoding ROS color encoding (see sensor_msgs/image_encodings.h)
      * @throws std::exception if error occurs
      */
-    Camera( int camera_id, int32_t format_id, float frame_rate, const std::string& color_mode );
+    Camera( uint32_t camera_id, int32_t format_id, float frame_rate, const std::string& color_mode );
                 
     virtual ~Camera();
     

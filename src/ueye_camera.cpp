@@ -39,7 +39,7 @@ std::vector<IMAGE_FORMAT_INFO> get_image_formats( int camera_id );
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-Camera::Camera( int camera_id, int32_t format_id, float frame_rate, const std::string& color_mode )
+Camera::Camera( uint32_t camera_id, int32_t format_id, float frame_rate, const std::string& color_mode )
 : camera_id_( (HIDS) camera_id )
 {
     for ( auto cam : get_camera_list() )

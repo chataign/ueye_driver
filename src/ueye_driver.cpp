@@ -7,16 +7,7 @@
 
 #include "ueye_camera.h"
 
-bool running=true;
-
-////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-
-void terminate( int signal=0 )
-{
-	ROS_INFO("terminating.");
-	running=false;
-}
+bool _running=true;
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -25,6 +16,8 @@ int main( int argc, char** argv )
 {
     ros::init( argc, argv, ROS_PACKAGE_NAME, ros::init_options::NoSigintHandler );
     ros::NodeHandle nh, local_nh("~");
+
+    auto terminate = [](int) { _running=false; };
 
 	signal( SIGINT,  terminate );
 	signal( SIGTERM, terminate );
@@ -55,7 +48,7 @@ int main( int argc, char** argv )
     camera.set_master_gain( master_gain );
     camera.start_capture( external_trigger );
     
-	while( ros::ok() && running )
+	while( ros::ok() && _running )
 	{
 		const ueye::CameraFrame* frame = camera.get_frame(timeout_ms);		
 		if (frame) pub.publish( frame->get_image(), dummy_info );
