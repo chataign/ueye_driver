@@ -11,11 +11,12 @@
 namespace ueye
 {
 
-// https://en.ids-imaging.com/manuals/uEye_SDK/EN/uEye_Manual/index.html?sdk_fehlermeldungen.html
+char __err_msg[200];
 
-#define UEYE_TRY( FUNC, ... ) { INT err = (FUNC)(__VA_ARGS__); if ( err != IS_SUCCESS ) \
-    throw std::runtime_error("call failed="+std::string(#FUNC)+" error="+std::to_string(err)); }
-    
+#define UEYE_TRY( FUNC, ... ) { INT err = (FUNC)(__VA_ARGS__); if ( err != IS_SUCCESS ) { \
+    snprintf( __err_msg, 200, "%s failed, error=%d (see http://tinyurl.com/gsp5ejo)", #FUNC, err ); \
+    throw std::runtime_error(__err_msg); } }
+
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -42,6 +43,9 @@ std::vector<IMAGE_FORMAT_INFO> get_image_formats( int camera_id );
 Camera::Camera( uint32_t camera_id, int32_t format_id, float frame_rate, const std::string& color_mode )
 : camera_id_( (HIDS) camera_id )
 {
+    std::vector<UEYE_CAMERA_INFO> cameras = get_camera_list();
+    ROS_INFO("found %lu cameras", cameras.size() );
+    
     for ( auto cam : get_camera_list() )
         ROS_INFO("camera_id=%d device_id=%d sensor=%d serial='%s' model='%s'", 
             cam.dwCameraID, cam.dwDeviceID, cam.dwSensorID, cam.SerNo, cam.Model );
