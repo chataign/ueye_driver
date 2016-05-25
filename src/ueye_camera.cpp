@@ -22,17 +22,18 @@ std::vector<UEYE_CAMERA_INFO> get_camera_list()
 {
     std::vector<UEYE_CAMERA_INFO> cameras;
     
-    INT N;
-    UEYE_TRY( is_GetNumberOfCameras, &N );
+    INT num_cameras;
+    UEYE_TRY( is_GetNumberOfCameras, &num_cameras );
 
-    cameras.resize(N);
+    cameras.resize(num_cameras);
     if ( cameras.empty() ) return cameras;
     
-    UEYE_CAMERA_LIST* cam_list = (UEYE_CAMERA_LIST*) new BYTE [sizeof (DWORD) + N * sizeof (UEYE_CAMERA_INFO) ];
-    cam_list->dwCount = N;  
+    UEYE_CAMERA_LIST* cam_list = (UEYE_CAMERA_LIST*) new BYTE [sizeof (DWORD) + num_cameras * sizeof (UEYE_CAMERA_INFO) ];
+    cam_list->dwCount = num_cameras;  
+    
     UEYE_TRY( is_GetCameraList, cam_list );
     
-    for ( int i=0; i<N; ++i )
+    for ( int i=0; i< num_cameras; ++i )
         cameras[i] = cam_list->uci[i];
         
    delete [] cam_list; 
