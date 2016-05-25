@@ -1,11 +1,12 @@
-#include "ueye_camera.h"
-
 #include <stdexcept>
+#include <vector>
+#include <ctime>
 
-#include <ros/ros.h>
+#include <ros/console.h>
 #include <sensor_msgs/image_encodings.h>
 
 #include <ueye.h>
+#include "ueye_camera.h"
 
 namespace ueye
 {
@@ -137,7 +138,6 @@ bool Camera::set_master_gain( uint8_t master_gain )
     if ( master_gain == 0 )
     {   
         UEYE_TRY( is_SetGainBoost, handle_, IS_SET_GAINBOOST_OFF );
-        return true;
     }
     else 
     {
@@ -147,6 +147,8 @@ bool Camera::set_master_gain( uint8_t master_gain )
         UEYE_TRY( is_SetHardwareGain, handle_, master_gain, 
             IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER );
     }
+
+    return true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

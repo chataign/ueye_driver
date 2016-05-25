@@ -1,9 +1,9 @@
 #ifndef UEYE_DRIVER_CAMERA_H
 #define UEYE_DRIVER_CAMERA_H
 
-#include <vector>
+#include <string>
 #include <memory>
-#include <stdexcept>
+#include <cstdint>
 
 #include <ros/time.h>
 
