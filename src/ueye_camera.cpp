@@ -15,12 +15,6 @@ namespace ueye
 
 #define UEYE_TRY( FUNC, ... ) { INT err = (FUNC)(__VA_ARGS__); if ( err != IS_SUCCESS ) \
     throw std::runtime_error("call failed="+std::string(#FUNC)+" error="+std::to_string(err)); }
-
-////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-
-bool operator==( const IMAGE_FORMAT_INFO& f1, const IMAGE_FORMAT_INFO& f2 )
-    { return f1.nFormatID == f2.nFormatID; }
     
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -57,14 +51,14 @@ Camera::Camera( int camera_id, int32_t format_id, float frame_rate, const std::s
         
     std::vector<IMAGE_FORMAT_INFO> formats = get_image_formats(camera_id_);
     
-    for ( auto fm : formats )
-        ROS_INFO("format=%02d x%.1f %s", fm.nFormatID, fm.dSensorScalerFactor, fm.strFormatName );
+    for ( auto format : formats )
+        ROS_INFO("format=%02d x%.1f %s", format.nFormatID, format.dSensorScalerFactor, format.strFormatName );
     
     auto format = std::find_if( formats.begin(), formats.end(), 
-        [&format_id]( const IMAGE_FORMAT_INFO& info ){ return info.nFormatID == format_id; } );
+        [&format_id]( IMAGE_FORMAT_INFO info ){ return info.nFormatID == format_id; } );
         
     if ( format == formats.end() )
-        throw std::invalid_argument("unsupported image format");
+        throw std::invalid_argument( "unsupported image format=" + std::to_string(format_id) );
     
     double actual_frame_rate=0;
 
@@ -82,6 +76,7 @@ Camera::Camera( int camera_id, int32_t format_id, float frame_rate, const std::s
 
 Camera::~Camera()
 {
+    frame_.reset(); // TODO
     UEYE_TRY( is_ExitCamera, camera_id_ );
 }
 
@@ -178,7 +173,8 @@ CameraFrame::CameraFrame( Camera& camera, int image_width, int image_height, con
 
 CameraFrame::~CameraFrame() 
 {
-    // is_FreeImageMem() does not release the memory, but it will be when image object is destroyed
+    // is_FreeImageMem() does not release the memory, it only removes it from driver management
+    // the memory itself is release when the sensor_msgs::Image object is destroyed
     UEYE_TRY( is_FreeImageMem, camera_.camera_id_, (char*) &image_.data[0], buffer_id_ );
 }
 

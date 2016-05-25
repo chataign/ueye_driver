@@ -1,22 +1,38 @@
 #include <ros/ros.h>
+#include <memory>
+#include <signal.h>
 
 #include <sensor_msgs/CameraInfo.h>
 #include <image_transport/image_transport.h>
 
 #include "ueye_camera.h"
 
+bool running=true;
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+void terminate( int signal=0 )
+{
+	ROS_INFO("terminating.");
+	running=false;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
 int main( int argc, char** argv )
 {
-    ros::init( argc, argv, ROS_PACKAGE_NAME );
+    ros::init( argc, argv, ROS_PACKAGE_NAME, ros::init_options::NoSigintHandler );
     ros::NodeHandle nh, local_nh("~");
+
+	signal( SIGINT,  terminate );
+	signal( SIGTERM, terminate );
 
     bool external_trigger=false;
     float frame_rate, publish_rate;
 	int master_gain, image_format, timeout_ms;
-	std::string camera_name, color_mode;
+	std::string camera_name, color_mode, image_topic;
 		
 	local_nh.param<int>( "master_gain", master_gain, 0 );
 	local_nh.param<int>( "image_format", image_format, 20 );
@@ -25,10 +41,11 @@ int main( int argc, char** argv )
 	local_nh.param<float>( "frame_rate", frame_rate, 30 );
 	local_nh.param<float>( "publish_rate", publish_rate, frame_rate );
 	local_nh.param<std::string>( "camera_name", camera_name, "camera" );
+	local_nh.param<std::string>( "image_topic", image_topic, "image_raw" );
 	local_nh.param<std::string>( "color_mode", color_mode, "mono8" );
 
     image_transport::ImageTransport it(nh);
-	image_transport::CameraPublisher pub = it.advertiseCamera( camera_name + "/image_raw", 1 );
+	image_transport::CameraPublisher pub = it.advertiseCamera( camera_name + "/" + image_topic, 1 );
 
 	ros::Rate spinner(publish_rate);
     sensor_msgs::CameraInfo dummy_info; // TODO
@@ -38,7 +55,7 @@ int main( int argc, char** argv )
     camera.set_master_gain( master_gain );
     camera.start_capture( external_trigger );
     
-	while( ros::ok() )
+	while( ros::ok() && running )
 	{
 		const ueye::CameraFrame* frame = camera.get_frame(timeout_ms);		
 		if (frame) pub.publish( frame->get_image(), dummy_info );
