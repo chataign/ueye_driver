@@ -6,6 +6,7 @@
 #include <cstdint>
 
 #include <ros/time.h>
+#include <ueye.h>
 
 #include <sensor_msgs/Image.h>
 
@@ -36,12 +37,8 @@ public:
 	virtual ~CameraFrame();
 
 	ros::Time get_timestamp() const;
-	void update_timestamp() {
-		image_.header.stamp = get_timestamp();
-	}
-	const sensor_msgs::Image& get_image() const {
-		return image_;
-	}
+	void update_timestamp() { image_.header.stamp = get_timestamp(); }
+	const sensor_msgs::Image& get_image() const { return image_; }
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -69,7 +66,8 @@ public:
 	 * @param[in] encoding ROS color encoding (see sensor_msgs/image_encodings.h)
 	 * @throws std::exception if error occurs
 	 */
-	Camera( uint32_t camera_id, int32_t format_id, float frame_rate, const std::string& color_mode );
+	Camera( uint32_t camera_id, int32_t format_id, float frame_rate, 
+	    const std::string& color_mode, float aoi_ratio );
 
 	virtual ~Camera();
 
@@ -83,6 +81,8 @@ public:
 	 * @throws std::exception if error occurs
 	 */
 	const CameraFrame* get_frame( int timeout_ms );
+	
+	static std::vector<UEYE_CAMERA_INFO> get_camera_list();
 };
 
 ////////////////////////////////////////////////////////////////////////////////

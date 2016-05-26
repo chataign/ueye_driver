@@ -5,16 +5,12 @@
 #include <ros/console.h>
 #include <sensor_msgs/image_encodings.h>
 
-#include <ueye.h>
 #include "ueye_camera.h"
 
 namespace ueye
 {
-char __err_msg[200];
-
 #define UEYE_TRY( FUNC, ... ) { INT err = (FUNC)(__VA_ARGS__); if ( err != IS_SUCCESS ) { \
-	snprintf( __err_msg, 200, "%s failed, error=%d (see http://tinyurl.com/gsp5ejo)", # FUNC, err ); \
-	throw std::runtime_error(__err_msg); } }
+	throw std::runtime_error( std::string(#FUNC)+" failed, error="+std::to_string(err) ); } }
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -34,29 +30,22 @@ static const std::map< std::string, ColorMode > color_modes = {
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-std::vector<UEYE_CAMERA_INFO> get_camera_list();
 std::vector<IMAGE_FORMAT_INFO> get_image_formats( int camera_id );
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-Camera::Camera( uint32_t camera_id, int32_t format_id, float frame_rate, const std::string& color_mode )
+Camera::Camera( uint32_t camera_id, int32_t format_id, float frame_rate, 
+                    const std::string& color_mode, float aoi_ratio )
 	: camera_id_( (HIDS)camera_id )
 {
-	std::vector<UEYE_CAMERA_INFO> cameras = get_camera_list();
-	ROS_INFO("found %lu cameras", cameras.size() );
-
-	for ( auto cam : get_camera_list() )
-		ROS_INFO("camera_id=%d device_id=%d sensor=%d serial='%s' model='%s'",
-				cam.dwCameraID, cam.dwDeviceID, cam.dwSensorID, cam.SerNo, cam.Model );
-
 	ROS_INFO("opening camera id=%d", camera_id );
 	UEYE_TRY( is_InitCamera, (HIDS*) &camera_id_, NULL );
 
-	std::vector<IMAGE_FORMAT_INFO> formats = get_image_formats(camera_id_);
+	auto formats = get_image_formats(camera_id_);
 
 	for ( auto format : formats )
-		ROS_INFO("format=%02d x%.1f %s", format.nFormatID, format.dSensorScalerFactor, format.strFormatName );
+		ROS_INFO("format=%2d %s", format.nFormatID, format.strFormatName );
 
 	auto format = std::find_if( formats.begin(), formats.end(),
 			[&format_id]( IMAGE_FORMAT_INFO info ){ return info.nFormatID == format_id; } );
@@ -65,14 +54,23 @@ Camera::Camera( uint32_t camera_id, int32_t format_id, float frame_rate, const s
 		throw std::invalid_argument( "unsupported image format=" + std::to_string(format_id) );
 
 	double actual_frame_rate = 0;
+    
+    IS_RECT aoi_rect; 
+    aoi_rect.s32Width = format->nWidth*aoi_ratio;
+    aoi_rect.s32Height = format->nHeight*aoi_ratio;
+    aoi_rect.s32X = (1-aoi_ratio)*format->nWidth/2;
+    aoi_rect.s32Y = (1-aoi_ratio)*format->nHeight/2;
 
+    ROS_INFO("width=%d height=%d", aoi_rect.s32Width, aoi_rect.s32Height );
+    
 	UEYE_TRY( is_ImageFormat, camera_id_, IMGFRMT_CMD_SET_FORMAT, &format_id, sizeof(int32_t) );
 	UEYE_TRY( is_SetDisplayMode, camera_id_, IS_SET_DM_DIB );
 	UEYE_TRY( is_SetFrameRate, camera_id_, frame_rate, &actual_frame_rate );
 	UEYE_TRY( is_SetColorMode, camera_id_, color_modes.at(color_mode).ueye_mode );
-
+    UEYE_TRY( is_AOI, camera_id_, IS_AOI_IMAGE_SET_AOI, &aoi_rect, sizeof(aoi_rect) );
+    
 	ROS_INFO("frame rate: requested=%.1fHz actual=%.1fHz", frame_rate, actual_frame_rate );
-	frame_ = std::make_shared<CameraFrame>( *this, format->nWidth, format->nHeight, color_mode );
+	frame_ = std::make_shared<CameraFrame>( *this, aoi_rect.s32Width, aoi_rect.s32Height, color_mode );
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -80,7 +78,7 @@ Camera::Camera( uint32_t camera_id, int32_t format_id, float frame_rate, const s
 
 Camera::~Camera()
 {
-	frame_.reset();	// TODO
+	frame_.reset();	// must call FreeImageMem() before ExitCamera()
 	UEYE_TRY( is_ExitCamera, camera_id_ );
 }
 
@@ -205,7 +203,7 @@ ros::Time CameraFrame::get_timestamp() const
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-std::vector<UEYE_CAMERA_INFO> get_camera_list()
+std::vector<UEYE_CAMERA_INFO> Camera::get_camera_list()
 {
 	std::vector<UEYE_CAMERA_INFO> cameras;
 
