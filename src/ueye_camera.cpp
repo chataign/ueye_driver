@@ -4,6 +4,7 @@
 
 #include <ros/console.h>
 #include <sensor_msgs/image_encodings.h>
+#include <camera_calibration_parsers/parse.h>
 
 #include "ueye_camera.h"
 
@@ -35,14 +36,14 @@ std::vector<IMAGE_FORMAT_INFO> get_image_formats( int camera_id );
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-Camera::Camera( uint32_t camera_id, int32_t format_id, float frame_rate, 
+Camera::Camera( const UEYE_CAMERA_INFO& device_info, int32_t format_id, float frame_rate, 
                     const std::string& color_mode, float aoi_ratio )
-	: camera_id_( (HIDS)camera_id )
+	: device_info_( device_info )
 {
-	ROS_INFO("opening camera id=%d", camera_id );
-	UEYE_TRY( is_InitCamera, (HIDS*) &camera_id_, NULL );
-
-	auto formats = get_image_formats(camera_id_);
+	ROS_INFO("opening camera id=%d serial=%s", device_info_.dwCameraID, device_info_.SerNo );
+	UEYE_TRY( is_InitCamera, (HIDS*) &device_info_.dwCameraID, NULL );
+                
+    auto formats = get_image_formats( device_info_.dwCameraID );
 
 	for ( auto format : formats )
 		ROS_INFO("format=%2d %s", format.nFormatID, format.strFormatName );
@@ -63,14 +64,21 @@ Camera::Camera( uint32_t camera_id, int32_t format_id, float frame_rate,
 
     ROS_INFO("width=%d height=%d", aoi_rect.s32Width, aoi_rect.s32Height );
     
-	UEYE_TRY( is_ImageFormat, camera_id_, IMGFRMT_CMD_SET_FORMAT, &format_id, sizeof(int32_t) );
-	UEYE_TRY( is_SetDisplayMode, camera_id_, IS_SET_DM_DIB );
-	UEYE_TRY( is_SetFrameRate, camera_id_, frame_rate, &actual_frame_rate );
-	UEYE_TRY( is_SetColorMode, camera_id_, color_modes.at(color_mode).ueye_mode );
-    UEYE_TRY( is_AOI, camera_id_, IS_AOI_IMAGE_SET_AOI, &aoi_rect, sizeof(aoi_rect) );
+	UEYE_TRY( is_ImageFormat,    device_info_.dwCameraID, IMGFRMT_CMD_SET_FORMAT, &format_id, sizeof(int32_t) );
+	UEYE_TRY( is_SetDisplayMode, device_info_.dwCameraID, IS_SET_DM_DIB );
+	UEYE_TRY( is_SetFrameRate,   device_info_.dwCameraID, frame_rate, &actual_frame_rate );
+	UEYE_TRY( is_SetColorMode,   device_info_.dwCameraID, color_modes.at(color_mode).ueye_mode );
+    UEYE_TRY( is_AOI,            device_info_.dwCameraID, IS_AOI_IMAGE_SET_AOI, &aoi_rect, sizeof(aoi_rect) );
     
 	ROS_INFO("frame rate: requested=%.1fHz actual=%.1fHz", frame_rate, actual_frame_rate );
 	frame_ = std::make_shared<CameraFrame>( *this, aoi_rect.s32Width, aoi_rect.s32Height, color_mode );
+
+    std::string camera_name;
+
+    if ( camera_calibration_parsers::readCalibration( get_calibration_file(), camera_name, camera_info_ ) )
+        ROS_INFO_STREAM( "read calibration for camera=" << camera_name );
+
+//    camera_info_.header.frame_id = "/" + frame_name_;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -79,7 +87,7 @@ Camera::Camera( uint32_t camera_id, int32_t format_id, float frame_rate,
 Camera::~Camera()
 {
 	frame_.reset();	// must call FreeImageMem() before ExitCamera()
-	UEYE_TRY( is_ExitCamera, camera_id_ );
+	UEYE_TRY( is_ExitCamera, device_info_.dwCameraID );
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -87,18 +95,18 @@ Camera::~Camera()
 
 bool Camera::set_master_gain( uint8_t master_gain )
 {
-	if ( is_SetGainBoost( camera_id_, IS_GET_SUPPORTED_GAINBOOST ) != IS_SET_GAINBOOST_ON )
-	{ ROS_WARN("hardware gain not supported"); return false; }
+	if ( is_SetGainBoost( device_info_.dwCameraID, IS_GET_SUPPORTED_GAINBOOST ) != IS_SET_GAINBOOST_ON )
+	    { ROS_WARN("hardware gain not supported"); return false; }
 
 	if ( master_gain == 0 )	// disable gain
 	{
-		UEYE_TRY( is_SetGainBoost, camera_id_, IS_SET_GAINBOOST_OFF );
+		UEYE_TRY( is_SetGainBoost, device_info_.dwCameraID, IS_SET_GAINBOOST_OFF );
 	}
 	else
 	{
 		ROS_INFO( "setting master gain=%d", master_gain );
-		UEYE_TRY( is_SetGainBoost, camera_id_, IS_SET_GAINBOOST_ON );
-		UEYE_TRY( is_SetHardwareGain, camera_id_, master_gain,
+		UEYE_TRY( is_SetGainBoost, device_info_.dwCameraID, IS_SET_GAINBOOST_ON );
+		UEYE_TRY( is_SetHardwareGain, device_info_.dwCameraID, master_gain,
 				IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER );
 	}
 
@@ -112,14 +120,14 @@ void Camera::start_capture( bool external_trigger )
 {
 	if ( external_trigger )
 	{
-		UEYE_TRY( is_EnableEvent, camera_id_, IS_SET_EVENT_FRAME );
-		UEYE_TRY( is_SetExternalTrigger, camera_id_, IS_SET_TRIGGER_HI_LO );
-		UEYE_TRY( is_CaptureVideo, camera_id_, IS_DONT_WAIT );
+		UEYE_TRY( is_EnableEvent, device_info_.dwCameraID, IS_SET_EVENT_FRAME );
+		UEYE_TRY( is_SetExternalTrigger, device_info_.dwCameraID, IS_SET_TRIGGER_HI_LO );
+		UEYE_TRY( is_CaptureVideo, device_info_.dwCameraID, IS_DONT_WAIT );
 	}
 	else	// freerun mode
 	{
-		UEYE_TRY( is_EnableEvent, camera_id_, IS_SET_EVENT_FRAME );
-		UEYE_TRY( is_CaptureVideo, camera_id_, IS_WAIT );
+		UEYE_TRY( is_EnableEvent, device_info_.dwCameraID, IS_SET_EVENT_FRAME );
+		UEYE_TRY( is_CaptureVideo, device_info_.dwCameraID, IS_WAIT );
 	}
 }
 
@@ -128,7 +136,7 @@ void Camera::start_capture( bool external_trigger )
 
 const CameraFrame* Camera::get_frame( int timeout_ms )
 {
-	switch ( is_WaitEvent( camera_id_, IS_SET_EVENT_FRAME, timeout_ms ) )
+	switch ( is_WaitEvent( device_info_.dwCameraID, IS_SET_EVENT_FRAME, timeout_ms ) )
 	{
 	case IS_SUCCESS:
 		frame_->update_timestamp();
@@ -136,7 +144,7 @@ const CameraFrame* Camera::get_frame( int timeout_ms )
 	case IS_TIMED_OUT:
 		return NULL;
 	default:
-		UEYE_TRY( is_DisableEvent, camera_id_, IS_SET_EVENT_FRAME );
+		UEYE_TRY( is_DisableEvent, device_info_.dwCameraID, IS_SET_EVENT_FRAME );
 		throw std::runtime_error("failed to get frame");
 	}
 }
@@ -144,8 +152,16 @@ const CameraFrame* Camera::get_frame( int timeout_ms )
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
+std::string Camera::get_calibration_file() const
+{
+    return getenv("HOME") + std::string("/.ros/cameras/ueye/") + device_info_.SerNo + ".yaml";
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
 CameraFrame::CameraFrame( Camera& camera, int image_width, int image_height, const std::string& color_mode )
-	: camera_(camera)
+	: camera_id_( camera.device_info_.dwCameraID )
 	, buffer_id_(0)
 {
 	uint16_t bits_per_pixel = color_modes.at(color_mode).bits_per_pixel;
@@ -163,11 +179,11 @@ CameraFrame::CameraFrame( Camera& camera, int image_width, int image_height, con
 	// set the camera buffer to be that of the internal
 	// sensor_msgs::Image object to avoid unecessary data copies
 
-	UEYE_TRY( is_SetAllocatedImageMem, camera_.camera_id_,
+	UEYE_TRY( is_SetAllocatedImageMem, camera_id_,
 			image_.width, image_.height, bits_per_pixel,
 			(char*) &image_.data[0], &buffer_id_ );
 
-	UEYE_TRY( is_SetImageMem, camera_.camera_id_, (char*) &image_.data[0], buffer_id_ );
+	UEYE_TRY( is_SetImageMem, camera_id_, (char*) &image_.data[0], buffer_id_ );
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -177,7 +193,7 @@ CameraFrame::~CameraFrame()
 {
 	// is_FreeImageMem() does not release the memory, it only removes it from driver management
 	// the memory itself is release when the sensor_msgs::Image object is destroyed
-	UEYE_TRY( is_FreeImageMem, camera_.camera_id_, (char*) &image_.data[0], buffer_id_ );
+	UEYE_TRY( is_FreeImageMem, camera_id_, (char*) &image_.data[0], buffer_id_ );
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -186,7 +202,7 @@ CameraFrame::~CameraFrame()
 ros::Time CameraFrame::get_timestamp() const
 {
 	UEYEIMAGEINFO image_info;
-	UEYE_TRY( is_GetImageInfo, camera_.camera_id_, buffer_id_, &image_info, sizeof(image_info) );
+	UEYE_TRY( is_GetImageInfo, camera_id_, buffer_id_, &image_info, sizeof(image_info) );
 	UEYETIME utime = image_info.TimestampSystem;
 
 	struct tm tm;

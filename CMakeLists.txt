@@ -21,7 +21,7 @@ message(STATUS "ueye_api library: ${UEYE_LIBRARY}")
 message(STATUS "ueye_api include: ${UEYE_INCLUDE_DIR}")
 
 find_package(catkin REQUIRED COMPONENTS
-  roscpp image_transport sensor_msgs
+  roscpp image_transport sensor_msgs camera_calibration_parsers
 )
 
 catkin_package(

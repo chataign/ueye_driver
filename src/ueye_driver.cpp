@@ -36,7 +36,6 @@ int main( int argc, char** argv )
 	auto pub = it.advertiseCamera( camera_name + "/" + image_topic, 1 );
 
 	ros::Rate spinner(publish_rate);
-	sensor_msgs::CameraInfo dummy_info;	// TODO
 
 	auto available_cameras = ueye::Camera::get_camera_list();
 	ROS_INFO("found %lu available cameras", available_cameras.size() );
@@ -44,7 +43,13 @@ int main( int argc, char** argv )
 	for ( auto cam : available_cameras )
 		ROS_INFO("id=%d serial='%s' model='%s'", cam.dwCameraID, cam.SerNo, cam.Model );
 
-	ueye::Camera camera( camera_id, image_format, frame_rate, color_mode, aoi_ratio );
+    auto camera_info = std::find_if( available_cameras.begin(), available_cameras.end(), 
+        [&camera_id]( const UEYE_CAMERA_INFO& cam_info ) { return cam_info.dwCameraID == (DWORD)camera_id; } );
+    
+    if ( camera_info == available_cameras.end() ) 
+        { ROS_ERROR("invalid camera id"); return 0; }
+    
+	ueye::Camera camera( *camera_info, image_format, frame_rate, color_mode, aoi_ratio );
 
 	camera.set_master_gain( master_gain );
 	camera.start_capture( external_trigger );
@@ -52,7 +57,7 @@ int main( int argc, char** argv )
 	while ( ros::ok() )
 	{
 		const ueye::CameraFrame* frame = camera.get_frame(timeout_ms);
-		if (frame) pub.publish( frame->get_image(), dummy_info );
+		if (frame) pub.publish( frame->get_image(), camera.get_info() );
 
 		ros::spinOnce();
 		spinner.sleep();
