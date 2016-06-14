@@ -78,7 +78,7 @@ Camera::Camera( const UEYE_CAMERA_INFO& device_info, int32_t format_id, float fr
 	if ( camera_calibration_parsers::readCalibration( get_calibration_file(), camera_name, camera_info_ ) )
 		ROS_INFO_STREAM( "read calibration for camera=" << camera_name );
 
-//    camera_info_.header.frame_id = "/" + frame_name_;
+    camera_info_.header.frame_id = "camera";
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -166,6 +166,7 @@ CameraFrame::CameraFrame( Camera& camera, int image_width, int image_height, con
 {
 	uint16_t bits_per_pixel = color_modes.at(color_mode).bits_per_pixel;
 
+    image_.header.frame_id = "camera";
 	image_.is_bigendian = false;
 	image_.encoding = color_mode;
 	image_.width  = image_width;
