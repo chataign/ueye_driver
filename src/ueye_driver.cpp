@@ -43,12 +43,12 @@ int main( int argc, char** argv )
 	for ( auto cam : available_cameras )
 		ROS_INFO("id=%d serial='%s' model='%s'", cam.dwCameraID, cam.SerNo, cam.Model );
 
-    auto camera_info = std::find_if( available_cameras.begin(), available_cameras.end(), 
-        [&camera_id]( const UEYE_CAMERA_INFO& cam_info ) { return cam_info.dwCameraID == (DWORD)camera_id; } );
-    
-    if ( camera_info == available_cameras.end() ) 
-        { ROS_ERROR("invalid camera id"); return 0; }
-    
+	auto camera_info = std::find_if( available_cameras.begin(), available_cameras.end(), 
+		[&camera_id]( const UEYE_CAMERA_INFO& cam_info ) { return cam_info.dwCameraID == (DWORD)camera_id; } );
+	
+	if ( camera_info == available_cameras.end() ) 
+		{ ROS_ERROR("invalid camera id"); return 0; }
+	
 	ueye::Camera camera( *camera_info, image_format, frame_rate, color_mode, aoi_ratio );
 
 	camera.set_master_gain( master_gain );
