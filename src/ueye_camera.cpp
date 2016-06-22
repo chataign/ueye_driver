@@ -36,41 +36,62 @@ std::vector<IMAGE_FORMAT_INFO> get_image_formats( int camera_id );
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-Camera::Camera( const UEYE_CAMERA_INFO& device_info, int32_t format_id, float frame_rate, 
-	const std::string& color_mode, float aoi_ratio )
+Camera::Camera( const UEYE_CAMERA_INFO& device_info, double frame_rate, double &publish_rate,
+		const std::string& color_mode, UINT _pixelclock)
 	: device_info_( device_info )
 {
 	ROS_INFO("opening camera id=%d serial=%s", device_info_.dwCameraID, device_info_.SerNo );
 	UEYE_TRY( is_InitCamera, (HIDS*) &device_info_.dwCameraID, NULL );
 
-	auto formats = get_image_formats( device_info_.dwCameraID );
+//	auto formats = get_image_formats( device_info_.dwCameraID );
+//
+//	for ( auto format : formats )
+//		ROS_INFO("format=%2d %s", format.nFormatID, format.strFormatName );
+//
+//	auto format = std::find_if( formats.begin(), formats.end(),
+//		[&format_id]( IMAGE_FORMAT_INFO info ){ return info.nFormatID == format_id; } );
+//
+//	if ( format == formats.end() )
+//		throw std::invalid_argument( "unsupported image format=" + std::to_string(format_id) );
 
-	for ( auto format : formats )
-		ROS_INFO("format=%2d %s", format.nFormatID, format.strFormatName );
 
-	auto format = std::find_if( formats.begin(), formats.end(),
-		[&format_id]( IMAGE_FORMAT_INFO info ){ return info.nFormatID == format_id; } );
-
-	if ( format == formats.end() )
-		throw std::invalid_argument( "unsupported image format=" + std::to_string(format_id) );
-
-	double actual_frame_rate = 0;
-	
-	IS_RECT aoi_rect; 
-	aoi_rect.s32Width = format->nWidth*aoi_ratio;
-	aoi_rect.s32Height = format->nHeight*aoi_ratio;
-	aoi_rect.s32X = (1-aoi_ratio)*format->nWidth/2;
-	aoi_rect.s32Y = (1-aoi_ratio)*format->nHeight/2;
-
-	ROS_INFO("width=%d height=%d", aoi_rect.s32Width, aoi_rect.s32Height );
-	
-	UEYE_TRY( is_ImageFormat,    device_info_.dwCameraID, IMGFRMT_CMD_SET_FORMAT, &format_id, sizeof(int32_t) );
+//	UEYE_TRY( is_ImageFormat,    device_info_.dwCameraID, IMGFRMT_CMD_SET_FORMAT, &format_id, sizeof(int32_t) );
 	UEYE_TRY( is_SetDisplayMode, device_info_.dwCameraID, IS_SET_DM_DIB );
-	UEYE_TRY( is_SetFrameRate,   device_info_.dwCameraID, frame_rate, &actual_frame_rate );
 	UEYE_TRY( is_SetColorMode,   device_info_.dwCameraID, color_modes.at(color_mode).ueye_mode );
-	UEYE_TRY( is_AOI,            device_info_.dwCameraID, IS_AOI_IMAGE_SET_AOI, &aoi_rect, sizeof(aoi_rect) );
-	
-	ROS_INFO("frame rate: requested=%.1fHz actual=%.1fHz", frame_rate, actual_frame_rate );
+	ROS_INFO("color mode=%d", color_modes.at(color_mode).ueye_mode);
+
+	IS_RECT aoi_rect; 
+//	aoi_rect.s32Width = format->nWidth*aoi_ratio;
+//	aoi_rect.s32Height = format->nHeight*aoi_ratio;
+//	aoi_rect.s32X = (1-aoi_ratio)*format->nWidth/2;
+//	aoi_rect.s32Y = (1-aoi_ratio)*format->nHeight/2;
+	aoi_rect.s32Width =  1080;
+	aoi_rect.s32Height = 1080;
+	aoi_rect.s32X = 220;
+	aoi_rect.s32Y = 50;
+	ROS_INFO("width=%d height=%d", aoi_rect.s32Width, aoi_rect.s32Height );
+	UEYE_TRY( is_AOI, device_info_.dwCameraID, IS_AOI_IMAGE_SET_AOI, &aoi_rect, sizeof(aoi_rect) );
+
+///////////////////////////////////[PCO]/////////////////////////////////////////////////
+	// Set this pixel clock. Range: [10 - 128]
+	UEYE_TRY(is_PixelClock, device_info_.dwCameraID, IS_PIXELCLOCK_CMD_SET, (void*)&_pixelclock,
+			sizeof(_pixelclock));
+	ROS_INFO("PixelClock set to %d", _pixelclock);
+
+	//Set the frame rate. First, see what's the maximum (it varies with pixelclock)
+	double min, max, intervall;
+	UEYE_TRY(is_GetFrameTimeRange ,device_info_.dwCameraID, &min, &max, &intervall);
+	ROS_INFO("Maximum possible frame rate: %f", 1/min);
+
+	//Set the frame rate to this maximum. (fps_max = 1 /min)
+	UEYE_TRY(is_SetFrameRate,device_info_.dwCameraID,  frame_rate, &publish_rate);
+	ROS_INFO("frame rate: requested=%.1fHz actual=%.1fHz", frame_rate, publish_rate);
+///////////////////////////////////[PCO]/////////////////////////////////////////////////
+
+//	double actual_frame_rate = 0;
+//	UEYE_TRY( is_SetFrameRate,   device_info_.dwCameraID, frame_rate, &actual_frame_rate );
+//	ROS_INFO("frame rate: requested=%.1fHz actual=%.1fHz", frame_rate, actual_frame_rate );
+
 	frame_ = std::make_shared<CameraFrame>( *this, aoi_rect.s32Width, aoi_rect.s32Height, color_mode );
 
 	std::string camera_name;
@@ -86,6 +107,7 @@ Camera::Camera( const UEYE_CAMERA_INFO& device_info, int32_t format_id, float fr
 
 Camera::~Camera()
 {
+	//PCO: I will trust that FreeImageMem() is called...
 	frame_.reset();	// must call FreeImageMem() before ExitCamera()
 	UEYE_TRY( is_ExitCamera, device_info_.dwCameraID );
 }
@@ -104,7 +126,7 @@ bool Camera::set_master_gain( uint8_t master_gain )
 	}
 	else
 	{
-		ROS_INFO( "setting master gain=%d", master_gain );
+		ROS_INFO( "Master gain set to %d, gain boost activated", master_gain );
 		UEYE_TRY( is_SetGainBoost, device_info_.dwCameraID, IS_SET_GAINBOOST_ON );
 		UEYE_TRY( is_SetHardwareGain, device_info_.dwCameraID, master_gain,
 			IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER );
@@ -155,6 +177,64 @@ const CameraFrame* Camera::get_frame( int timeout_ms )
 std::string Camera::get_calibration_file() const
 {
 	return getenv("HOME") + std::string("/.ros/cameras/ueye/") + device_info_.SerNo + ".yaml";
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+bool Camera::set_exposure( double _exposure )
+{
+	double max_exp;
+	//Set the exposure time. First see what's the maximum (it varies with framerate)
+	UEYE_TRY(is_Exposure, device_info_.dwCameraID, IS_EXPOSURE_CMD_GET_EXPOSURE_RANGE_MAX,
+			(void*) &max_exp, sizeof(max_exp));
+	ROS_INFO("Maximum exposure (given by frame rate) is %.1f ", max_exp);
+
+	//Set the exposure time it to this maximum.
+	UEYE_TRY(is_Exposure,device_info_.dwCameraID, IS_EXPOSURE_CMD_SET_EXPOSURE,
+			(void*) &_exposure, sizeof(_exposure));
+	ROS_INFO("Exposure set to %.1f ", _exposure);
+
+	return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+bool Camera::set_blacklevel(INT nOffset)
+{
+	//Set the new offset
+	UEYE_TRY(is_Blacklevel, device_info_.dwCameraID, IS_BLACKLEVEL_CMD_SET_OFFSET,
+			(void*)&nOffset, sizeof(nOffset));
+	ROS_INFO("Black level offset set to %d", nOffset);
+
+	return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+bool Camera::set_gamma(INT nGamma)
+{
+	//Set software gamma. Hardware gamma correction should suffice
+	UEYE_TRY(is_Gamma, device_info_.dwCameraID, IS_GAMMA_CMD_SET, (void*) &nGamma, sizeof(nGamma));
+	INT nGamma_get;
+	UEYE_TRY(is_Gamma, device_info_.dwCameraID, IS_GAMMA_CMD_GET, (void*) &nGamma_get, sizeof(nGamma_get));
+	ROS_INFO("Software gamma set to %d", nGamma_get);
+
+	return true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+bool Camera::set_hardware_gamma()
+{
+	//	Enable hardware gamma correction
+	UEYE_TRY(is_SetHardwareGamma, device_info_.dwCameraID,  IS_SET_HW_GAMMA_ON);
+	ROS_INFO("Hardware gamma correction set");
+
+	return true;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

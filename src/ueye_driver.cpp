@@ -15,27 +15,51 @@ int main( int argc, char** argv )
 	ros::init( argc, argv, ROS_PACKAGE_NAME, ros::init_options::NoSigintHandler );
 	ros::NodeHandle nh, local_nh("~");
 
-	bool external_trigger = false;
-	float frame_rate, publish_rate, aoi_ratio;
-	int camera_id, master_gain, image_format, timeout_ms;
+	bool external_trigger = false, hard_gamma = false;
+	int camera_id, master_gain, timeout_ms, pixelclock;
 	std::string camera_name, color_mode, image_topic;
+	double exposure, frame_rate, publish_rate;
+	INT nOffset, n_gamma ;
 
 	local_nh.param<int>( "camera_id", camera_id, 0 );
+	local_nh.param<int>( "pixelclock", pixelclock, 84 );
+	local_nh.param<double>( "exposure", exposure, 40 );
+	local_nh.param<int>( "blacklevel", nOffset, 90 );
+	local_nh.param<int>( "gamma", n_gamma, 100 );
+	local_nh.param<bool>( "hardware_gamma", hard_gamma, false );
 	local_nh.param<int>( "master_gain", master_gain, 0 );
-	local_nh.param<int>( "image_format", image_format, 20 );
+//	local_nh.param<int>( "image_format", image_format, 20 );
 	local_nh.param<int>( "timeout_ms", timeout_ms, 100 );
 	local_nh.param<bool>( "external_trigger", external_trigger, false );
-	local_nh.param<float>( "frame_rate", frame_rate, 30 );
-	local_nh.param<float>( "publish_rate", publish_rate, frame_rate );
-	local_nh.param<float>( "aoi_ratio", aoi_ratio, 1.0 );
+	//The key "frame_rate" is apparently already set in local_nh, so I use "fps".
+	local_nh.param<double>( "fps", frame_rate, 25 );
+	local_nh.param<double>( "publish_rate", publish_rate, frame_rate );
+//	local_nh.param<float>( "aoi_ratio", aoi_ratio, 1.0 );
 	local_nh.param<std::string>( "camera_name", camera_name, "camera" );
 	local_nh.param<std::string>( "image_topic", image_topic, "image_raw" );
 	local_nh.param<std::string>( "color_mode", color_mode, "mono8" );
 
+	ROS_INFO("CAMERA PARAMETERS - SETTINGS");
+	ROS_INFO("pixelclock to be set to %d MHz \t [1 - 128] MHz", pixelclock);
+	ROS_INFO("fps to be set to %.1f Hz \t [Range depends on pixel clock, AOI, resolution]", frame_rate);
+	ROS_INFO("exposure to be set to %.1f ms \t [Range depends on frame rate]", exposure);
+	ROS_INFO("blacklevel to be set to %d  \t [0 - 255]", nOffset);
+	ROS_INFO("gamma to be set to %d  \t [1 - 1000]", n_gamma);
+	std::string msg_hard_g = (hard_gamma ? "Hardware gamma to be set" : "Hardware gamma not to be set");
+	ROS_INFO("%s", msg_hard_g.c_str());
+	ROS_INFO("master_gain to be set to %d  \t [0 - 100] %% \n", master_gain);
+
+	ROS_INFO("PUBLISH INFO ");
+	ROS_INFO("Timeout set to %d ms", timeout_ms);
+	std::string msg_trigg = (external_trigger ? "External trigger set" : "Free run mode set");
+	ROS_INFO("%s", msg_trigg.c_str());
+	ROS_INFO("Publish_rate to be set to %.1f \t [equals frame rate desired]", publish_rate);
+	ROS_INFO("Camera name set to %s", camera_name.c_str());
+	ROS_INFO("Image topic set to %s", image_topic.c_str());
+	ROS_INFO("Color mode set to %s \n", color_mode.c_str());
+
 	image_transport::ImageTransport it(nh);
 	auto pub = it.advertiseCamera( camera_name + "/" + image_topic, 1 );
-
-	ros::Rate spinner(publish_rate);
 
 	auto available_cameras = ueye::Camera::get_camera_list();
 	ROS_INFO("found %lu available cameras", available_cameras.size() );
@@ -49,9 +73,18 @@ int main( int argc, char** argv )
 	if ( camera_info == available_cameras.end() ) 
 		{ ROS_ERROR("invalid camera id"); return 0; }
 	
-	ueye::Camera camera( *camera_info, image_format, frame_rate, color_mode, aoi_ratio );
+	ueye::Camera camera( *camera_info, frame_rate, publish_rate, color_mode, pixelclock) ;
 
+	ROS_INFO("Publish_rate set to %.1f \t [equals frame actual frame rate set]", publish_rate);
+	ros::Rate spinner(publish_rate);
+
+	camera.set_exposure( exposure );
 	camera.set_master_gain( master_gain );
+	camera.set_blacklevel(nOffset);
+	/* set gamma value to 1.6 */
+	//	INT nGamma = 160;
+	camera.set_gamma(n_gamma);
+	if (hard_gamma) camera.set_hardware_gamma();
 	camera.start_capture( external_trigger );
 
 	while ( ros::ok() )

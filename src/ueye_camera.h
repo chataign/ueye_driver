@@ -69,14 +69,17 @@ public:
 	 * @param[in] aoi_ratio Area Of Interest (AOI) ratio in [0,1] from image centre
 	 * @throws std::exception if connection to camera fails
 	 */
-	Camera( const UEYE_CAMERA_INFO& camera_info, int32_t format_id, float frame_rate, 
-	    const std::string& color_mode, float aoi_ratio );
-
+	Camera( const UEYE_CAMERA_INFO& device_info, double frame_rate, double &publish_rate,
+			const std::string& color_mode, UINT _pixelclock);
 	virtual ~Camera();
 
 	std::string get_calibration_file() const;
     const sensor_msgs::CameraInfo& get_info() const { return camera_info_; }
 	bool set_master_gain( uint8_t master_gain ); // in [0,100]
+	bool set_exposure( double exposure );
+	bool set_blacklevel(INT nOffset);
+	bool set_gamma(INT nGamma);
+	bool set_hardware_gamma();
 	void start_capture( bool external_trigger );
     
 	/**
