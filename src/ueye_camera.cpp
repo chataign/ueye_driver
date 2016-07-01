@@ -4,7 +4,6 @@
 
 #include <ros/console.h>
 #include <sensor_msgs/image_encodings.h>
-#include <camera_calibration_parsers/parse.h>
 
 #include "ueye_camera.h"
 
@@ -31,31 +30,13 @@ static const std::map< std::string, ColorMode > color_modes = {
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-std::vector<IMAGE_FORMAT_INFO> get_image_formats( int camera_id );
-
-////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-
-Camera::Camera( const UEYE_CAMERA_INFO& device_info, double frame_rate, double &publish_rate,
-		const std::string& color_mode, UINT _pixelclock)
+Camera::Camera( const UEYE_CAMERA_INFO& device_info, double frame_rate,
+		const std::string& color_mode, int pixel_clock )
 	: device_info_( device_info )
 {
 	ROS_INFO("opening camera id=%d serial=%s", device_info_.dwCameraID, device_info_.SerNo );
 	UEYE_TRY( is_InitCamera, (HIDS*) &device_info_.dwCameraID, NULL );
 
-//	auto formats = get_image_formats( device_info_.dwCameraID );
-//
-//	for ( auto format : formats )
-//		ROS_INFO("format=%2d %s", format.nFormatID, format.strFormatName );
-//
-//	auto format = std::find_if( formats.begin(), formats.end(),
-//		[&format_id]( IMAGE_FORMAT_INFO info ){ return info.nFormatID == format_id; } );
-//
-//	if ( format == formats.end() )
-//		throw std::invalid_argument( "unsupported image format=" + std::to_string(format_id) );
-
-
-//	UEYE_TRY( is_ImageFormat,    device_info_.dwCameraID, IMGFRMT_CMD_SET_FORMAT, &format_id, sizeof(int32_t) );
 	UEYE_TRY( is_SetDisplayMode, device_info_.dwCameraID, IS_SET_DM_DIB );
 	UEYE_TRY( is_SetColorMode,   device_info_.dwCameraID, color_modes.at(color_mode).ueye_mode );
 	ROS_INFO("color mode=%d", color_modes.at(color_mode).ueye_mode);
@@ -72,34 +53,21 @@ Camera::Camera( const UEYE_CAMERA_INFO& device_info, double frame_rate, double &
 	ROS_INFO("width=%d height=%d", aoi_rect.s32Width, aoi_rect.s32Height );
 	UEYE_TRY( is_AOI, device_info_.dwCameraID, IS_AOI_IMAGE_SET_AOI, &aoi_rect, sizeof(aoi_rect) );
 
-///////////////////////////////////[PCO]/////////////////////////////////////////////////
-	// Set this pixel clock. Range: [10 - 128]
-	UEYE_TRY(is_PixelClock, device_info_.dwCameraID, IS_PIXELCLOCK_CMD_SET, (void*)&_pixelclock,
-			sizeof(_pixelclock));
-	ROS_INFO("PixelClock set to %d", _pixelclock);
+	// Set pixel clock. Range: [10 - 128]
+	UEYE_TRY(is_PixelClock, device_info_.dwCameraID, IS_PIXELCLOCK_CMD_SET, 
+		(void*)&pixel_clock, sizeof(pixel_clock) );
+	ROS_INFO("Pixel clocks set to %dMHz", pixel_clock);
 
 	//Set the frame rate. First, see what's the maximum (it varies with pixelclock)
-	double min, max, intervall;
-	UEYE_TRY(is_GetFrameTimeRange ,device_info_.dwCameraID, &min, &max, &intervall);
+	double min, max, interval;
+	UEYE_TRY(is_GetFrameTimeRange, device_info_.dwCameraID, &min, &max, &interval );
 	ROS_INFO("Maximum possible frame rate: %f", 1/min);
 
-	//Set the frame rate to this maximum. (fps_max = 1 /min)
-	UEYE_TRY(is_SetFrameRate,device_info_.dwCameraID,  frame_rate, &publish_rate);
-	ROS_INFO("frame rate: requested=%.1fHz actual=%.1fHz", frame_rate, publish_rate);
-///////////////////////////////////[PCO]/////////////////////////////////////////////////
-
-//	double actual_frame_rate = 0;
-//	UEYE_TRY( is_SetFrameRate,   device_info_.dwCameraID, frame_rate, &actual_frame_rate );
-//	ROS_INFO("frame rate: requested=%.1fHz actual=%.1fHz", frame_rate, actual_frame_rate );
+	double actual_rate=0;
+	UEYE_TRY(is_SetFrameRate, device_info_.dwCameraID, frame_rate, &actual_rate );
+	ROS_INFO("frame rate: requested=%.1fHz actual=%.1fHz", frame_rate, actual_rate );
 
 	frame_ = std::make_shared<CameraFrame>( *this, aoi_rect.s32Width, aoi_rect.s32Height, color_mode );
-
-	std::string camera_name;
-
-	if ( camera_calibration_parsers::readCalibration( get_calibration_file(), camera_name, camera_info_ ) )
-		ROS_INFO_STREAM( "read calibration for camera=" << camera_name );
-
-    camera_info_.header.frame_id = "camera";
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -107,7 +75,6 @@ Camera::Camera( const UEYE_CAMERA_INFO& device_info, double frame_rate, double &
 
 Camera::~Camera()
 {
-	//PCO: I will trust that FreeImageMem() is called...
 	frame_.reset();	// must call FreeImageMem() before ExitCamera()
 	UEYE_TRY( is_ExitCamera, device_info_.dwCameraID );
 }
@@ -174,26 +141,18 @@ const CameraFrame* Camera::get_frame( int timeout_ms )
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-std::string Camera::get_calibration_file() const
+bool Camera::set_exposure( double exposure )
 {
-	return getenv("HOME") + std::string("/.ros/cameras/ueye/") + device_info_.SerNo + ".yaml";
-}
-
-////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-
-bool Camera::set_exposure( double _exposure )
-{
-	double max_exp;
+	double max_exposure;
 	//Set the exposure time. First see what's the maximum (it varies with framerate)
 	UEYE_TRY(is_Exposure, device_info_.dwCameraID, IS_EXPOSURE_CMD_GET_EXPOSURE_RANGE_MAX,
-			(void*) &max_exp, sizeof(max_exp));
-	ROS_INFO("Maximum exposure (given by frame rate) is %.1f ", max_exp);
+			(void*)&max_exposure, sizeof(max_exposure));
+	ROS_INFO("Maximum exposure (given by frame rate) is %.1f ", max_exposure);
 
 	//Set the exposure time it to this maximum.
 	UEYE_TRY(is_Exposure,device_info_.dwCameraID, IS_EXPOSURE_CMD_SET_EXPOSURE,
-			(void*) &_exposure, sizeof(_exposure));
-	ROS_INFO("Exposure set to %.1f ", _exposure);
+			(void*)&exposure, sizeof(exposure));
+	ROS_INFO("Exposure set to %.1f", exposure);
 
 	return true;
 }
@@ -201,12 +160,12 @@ bool Camera::set_exposure( double _exposure )
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-bool Camera::set_blacklevel(INT nOffset)
+bool Camera::set_blacklevel(int blacklevel)
 {
 	//Set the new offset
 	UEYE_TRY(is_Blacklevel, device_info_.dwCameraID, IS_BLACKLEVEL_CMD_SET_OFFSET,
-			(void*)&nOffset, sizeof(nOffset));
-	ROS_INFO("Black level offset set to %d", nOffset);
+			(void*)&blacklevel, sizeof(blacklevel));
+	ROS_INFO("Black level offset set to %d", blacklevel);
 
 	return true;
 }
@@ -214,13 +173,13 @@ bool Camera::set_blacklevel(INT nOffset)
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-bool Camera::set_gamma(INT nGamma)
+bool Camera::set_gamma(INT gamma)
 {
 	//Set software gamma. Hardware gamma correction should suffice
-	UEYE_TRY(is_Gamma, device_info_.dwCameraID, IS_GAMMA_CMD_SET, (void*) &nGamma, sizeof(nGamma));
-	INT nGamma_get;
-	UEYE_TRY(is_Gamma, device_info_.dwCameraID, IS_GAMMA_CMD_GET, (void*) &nGamma_get, sizeof(nGamma_get));
-	ROS_INFO("Software gamma set to %d", nGamma_get);
+	UEYE_TRY(is_Gamma, device_info_.dwCameraID, IS_GAMMA_CMD_SET, (void*) &gamma, sizeof(gamma));
+	INT gamma_get;
+	UEYE_TRY(is_Gamma, device_info_.dwCameraID, IS_GAMMA_CMD_GET, (void*) &gamma_get, sizeof(gamma_get));
+	ROS_INFO("Software gamma set to %d", gamma_get);
 
 	return true;
 }
@@ -231,7 +190,7 @@ bool Camera::set_gamma(INT nGamma)
 bool Camera::set_hardware_gamma()
 {
 	//	Enable hardware gamma correction
-	UEYE_TRY(is_SetHardwareGamma, device_info_.dwCameraID,  IS_SET_HW_GAMMA_ON);
+	UEYE_TRY(is_SetHardwareGamma, device_info_.dwCameraID, IS_SET_HW_GAMMA_ON );
 	ROS_INFO("Hardware gamma correction set");
 
 	return true;
@@ -320,30 +279,6 @@ std::vector<UEYE_CAMERA_INFO> Camera::get_camera_list()
 
 	delete [] cam_list;
 	return cameras;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-
-std::vector<IMAGE_FORMAT_INFO> get_image_formats( int camera_id )
-{
-	UINT num_formats = 0;
-	UEYE_TRY( is_ImageFormat, camera_id, IMGFRMT_CMD_GET_NUM_ENTRIES, &num_formats, sizeof(num_formats) );
-
-	UINT num_bytes = sizeof(IMAGE_FORMAT_LIST) + (num_formats - 1) * sizeof(IMAGE_FORMAT_INFO);
-
-	IMAGE_FORMAT_LIST* format_list = (IMAGE_FORMAT_LIST*) malloc(num_bytes);
-	format_list->nSizeOfListEntry = sizeof(IMAGE_FORMAT_INFO);
-	format_list->nNumListElements = num_formats;
-
-	UEYE_TRY( is_ImageFormat, camera_id, IMGFRMT_CMD_GET_LIST, format_list, num_bytes );
-
-	std::vector<IMAGE_FORMAT_INFO> formats(num_formats);
-
-	for ( UINT i = 0; i < num_formats; ++i )
-		formats[i] = format_list->FormatInfo[i];
-
-	return formats;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
