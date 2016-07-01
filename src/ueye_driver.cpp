@@ -1,6 +1,7 @@
 #include <ros/ros.h>
 #include <memory>
 #include <signal.h>
+#include <opencv/cv.h>
 
 #include <sensor_msgs/CameraInfo.h>
 #include <image_transport/image_transport.h>
@@ -19,6 +20,7 @@ int main( int argc, char** argv )
 	int camera_id, master_gain, timeout_ms, pixel_clock, blacklevel, gamma;
 	std::string camera_name, color_mode, image_topic;
 	double exposure, frame_rate, publish_rate;
+	IS_RECT aoi_rect;
 
 	local_nh.param<int>( "camera_id", camera_id, 0 );
 	local_nh.param<int>( "pixel_clock", pixel_clock, 84 );
@@ -29,10 +31,12 @@ int main( int argc, char** argv )
 	local_nh.param<int>( "master_gain", master_gain, 0 );
 	local_nh.param<int>( "timeout_ms", timeout_ms, 100 );
 	local_nh.param<bool>( "external_trigger", external_trigger, false );
-	//The key "frame_rate" is apparently already set in local_nh, so I use "fps".
-	local_nh.param<double>( "fps", frame_rate, 25 );
+	local_nh.param<double>( "frame_rate", frame_rate, 25 );
 	local_nh.param<double>( "publish_rate", publish_rate, frame_rate );
-//	local_nh.param<float>( "aoi_ratio", aoi_ratio, 1.0 );
+	local_nh.param<int>( "aoi_width", aoi_rect.s32Width, 1080 );
+	local_nh.param<int>( "aoi_height", aoi_rect.s32Height, 1080 );
+	local_nh.param<int>( "aoi_x", aoi_rect.s32X, 20 );
+	local_nh.param<int>( "aoi_y", aoi_rect.s32Y, 50 );
 	local_nh.param<std::string>( "camera_name", camera_name, "camera" );
 	local_nh.param<std::string>( "image_topic", image_topic, "image_raw" );
 	local_nh.param<std::string>( "color_mode", color_mode, "mono8" );
@@ -52,7 +56,7 @@ int main( int argc, char** argv )
 	if ( camera_info == available_cameras.end() ) 
 		{ ROS_ERROR("invalid camera id"); return 0; }
 	
-	ueye::Camera camera( *camera_info, frame_rate, color_mode, pixel_clock ) ;
+	ueye::Camera camera( *camera_info, frame_rate, color_mode, pixel_clock, aoi_rect ) ;
 
 	ROS_INFO("Publish_rate set to %.1f \t [equals frame actual frame rate set]", publish_rate);
 	ros::Rate spinner(publish_rate);

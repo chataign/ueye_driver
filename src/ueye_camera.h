@@ -5,6 +5,7 @@
 #include <memory>
 #include <cstdint>
 
+#include <opencv/cv.h>
 #include <ros/time.h>
 #include <ueye.h>
 
@@ -66,10 +67,12 @@ public:
 	 * @param[in] frame_rate desired frame rate
 	 * @param[in] encoding ROS color encoding (see sensor_msgs/image_encodings.h)
 	 * @param[in] pixel_clock pixel clock in MHz
+	 * @param[in] aoi_rect Area Of Interest (AOI) rectangle
 	 * @throws std::exception if connection to camera fails
 	 */
 	Camera( const UEYE_CAMERA_INFO& device_info, double frame_rate,
-			const std::string& color_mode, int pixel_clock );
+			const std::string& color_mode, int pixel_clock, const IS_RECT& aoi_rect );
+			
 	virtual ~Camera();
 
     const sensor_msgs::CameraInfo& get_info() const { return camera_info_; }

@@ -31,27 +31,18 @@ static const std::map< std::string, ColorMode > color_modes = {
 ////////////////////////////////////////////////////////////////////////////////
 
 Camera::Camera( const UEYE_CAMERA_INFO& device_info, double frame_rate,
-		const std::string& color_mode, int pixel_clock )
+		const std::string& color_mode, int pixel_clock, const IS_RECT& aoi_rect )
 	: device_info_( device_info )
 {
 	ROS_INFO("opening camera id=%d serial=%s", device_info_.dwCameraID, device_info_.SerNo );
 	UEYE_TRY( is_InitCamera, (HIDS*) &device_info_.dwCameraID, NULL );
 
 	UEYE_TRY( is_SetDisplayMode, device_info_.dwCameraID, IS_SET_DM_DIB );
-	UEYE_TRY( is_SetColorMode,   device_info_.dwCameraID, color_modes.at(color_mode).ueye_mode );
+	UEYE_TRY( is_SetColorMode, device_info_.dwCameraID, color_modes.at(color_mode).ueye_mode );
 	ROS_INFO("color mode=%d", color_modes.at(color_mode).ueye_mode);
 
-	IS_RECT aoi_rect; 
-//	aoi_rect.s32Width = format->nWidth*aoi_ratio;
-//	aoi_rect.s32Height = format->nHeight*aoi_ratio;
-//	aoi_rect.s32X = (1-aoi_ratio)*format->nWidth/2;
-//	aoi_rect.s32Y = (1-aoi_ratio)*format->nHeight/2;
-	aoi_rect.s32Width =  1080;
-	aoi_rect.s32Height = 1080;
-	aoi_rect.s32X = 220;
-	aoi_rect.s32Y = 50;
 	ROS_INFO("width=%d height=%d", aoi_rect.s32Width, aoi_rect.s32Height );
-	UEYE_TRY( is_AOI, device_info_.dwCameraID, IS_AOI_IMAGE_SET_AOI, &aoi_rect, sizeof(aoi_rect) );
+	UEYE_TRY( is_AOI, device_info_.dwCameraID, IS_AOI_IMAGE_SET_AOI, (void*)&aoi_rect, sizeof(aoi_rect) );
 
 	// Set pixel clock. Range: [10 - 128]
 	UEYE_TRY(is_PixelClock, device_info_.dwCameraID, IS_PIXELCLOCK_CMD_SET, 
