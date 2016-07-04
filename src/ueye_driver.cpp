@@ -17,12 +17,11 @@ int main( int argc, char** argv )
 	ros::NodeHandle nh, local_nh("~");
 
 	bool external_trigger = false, hard_gamma = false;
-	int camera_id, master_gain, timeout_ms, pixel_clock, blacklevel, gamma;
-	std::string camera_name, color_mode, image_topic, frame_id;
+	int master_gain, timeout_ms, pixel_clock, blacklevel, gamma;
+	std::string serial_no, camera_name, color_mode, image_topic, frame_id;
 	double exposure, frame_rate, publish_rate;
 	IS_RECT aoi_rect;
 
-	local_nh.param<int>( "camera_id", camera_id, 0 );
 	local_nh.param<int>( "pixel_clock", pixel_clock, 84 );
 	local_nh.param<double>( "exposure", exposure, 40 );
 	local_nh.param<int>( "blacklevel", blacklevel, 90 );
@@ -37,6 +36,7 @@ int main( int argc, char** argv )
 	local_nh.param<int>( "aoi_height", aoi_rect.s32Height, 1080 );
 	local_nh.param<int>( "aoi_x", aoi_rect.s32X, 20 );
 	local_nh.param<int>( "aoi_y", aoi_rect.s32Y, 50 );
+	local_nh.param<std::string>( "serial_no", serial_no, "" );
 	local_nh.param<std::string>( "frame_id", frame_id, "base_link" );
 	local_nh.param<std::string>( "camera_name", camera_name, "camera" );
 	local_nh.param<std::string>( "image_topic", image_topic, "image_raw" );
@@ -46,13 +46,15 @@ int main( int argc, char** argv )
 	auto pub = it.advertiseCamera( camera_name + "/" + image_topic, 1 );
 
 	auto available_cameras = ueye::Camera::get_camera_list();
-	ROS_INFO("found %lu available cameras, connecting to camera id=%d", available_cameras.size(), camera_id );
+
+	ROS_INFO("found %lu available cameras, connecting to camera no='%s'", 
+		available_cameras.size(), serial_no.c_str() );
 
 	for ( auto cam : available_cameras )
 		ROS_INFO("id=%d serial='%s' model='%s'", cam.dwCameraID, cam.SerNo, cam.Model );
 
 	auto camera_info = std::find_if( available_cameras.begin(), available_cameras.end(), 
-		[&camera_id]( const UEYE_CAMERA_INFO& cam_info ) { return cam_info.dwCameraID == (DWORD)camera_id; } );
+		[&serial_no]( const UEYE_CAMERA_INFO& cam_info ) { return std::string(cam_info.SerNo) == serial_no; } );
 	
 	if ( camera_info == available_cameras.end() ) 
 		{ ROS_ERROR("invalid camera id"); return 0; }
