@@ -30,7 +30,7 @@ static const std::map< std::string, ColorMode > color_modes = {
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-Camera::Camera( const UEYE_CAMERA_INFO& device_info, double frame_rate,
+Camera::Camera( const UEYE_CAMERA_INFO& device_info, const std::string& frame_id, double frame_rate,
 		const std::string& color_mode, int pixel_clock, const IS_RECT& aoi_rect )
 	: device_info_( device_info )
 {
@@ -41,7 +41,7 @@ Camera::Camera( const UEYE_CAMERA_INFO& device_info, double frame_rate,
 	UEYE_TRY( is_SetColorMode, device_info_.dwCameraID, color_modes.at(color_mode).ueye_mode );
 	ROS_INFO("color mode=%d", color_modes.at(color_mode).ueye_mode);
 
-	ROS_INFO("width=%d height=%d", aoi_rect.s32Width, aoi_rect.s32Height );
+	ROS_INFO("AOI: tl=(%d,%d) width=%d height=%d", aoi_rect.s32X, aoi_rect.s32Y, aoi_rect.s32Width, aoi_rect.s32Height );
 	UEYE_TRY( is_AOI, device_info_.dwCameraID, IS_AOI_IMAGE_SET_AOI, (void*)&aoi_rect, sizeof(aoi_rect) );
 
 	// Set pixel clock. Range: [10 - 128]
@@ -58,7 +58,7 @@ Camera::Camera( const UEYE_CAMERA_INFO& device_info, double frame_rate,
 	UEYE_TRY(is_SetFrameRate, device_info_.dwCameraID, frame_rate, &actual_rate );
 	ROS_INFO("frame rate: requested=%.1fHz actual=%.1fHz", frame_rate, actual_rate );
 
-	frame_ = std::make_shared<CameraFrame>( *this, aoi_rect.s32Width, aoi_rect.s32Height, color_mode );
+	frame_ = std::make_shared<CameraFrame>( *this, frame_id, aoi_rect.s32Width, aoi_rect.s32Height, color_mode );
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -190,13 +190,15 @@ bool Camera::set_hardware_gamma()
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-CameraFrame::CameraFrame( Camera& camera, int image_width, int image_height, const std::string& color_mode )
+CameraFrame::CameraFrame( Camera& camera, const std::string& frame_id, 
+				int image_width, int image_height, 
+				const std::string& color_mode )
 	: camera_id_( camera.device_info_.dwCameraID )
 	, buffer_id_(0)
 {
 	uint16_t bits_per_pixel = color_modes.at(color_mode).bits_per_pixel;
 
-    image_.header.frame_id = "camera";
+    image_.header.frame_id = frame_id;
 	image_.is_bigendian = false;
 	image_.encoding = color_mode;
 	image_.width  = image_width;

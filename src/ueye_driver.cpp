@@ -18,7 +18,7 @@ int main( int argc, char** argv )
 
 	bool external_trigger = false, hard_gamma = false;
 	int camera_id, master_gain, timeout_ms, pixel_clock, blacklevel, gamma;
-	std::string camera_name, color_mode, image_topic;
+	std::string camera_name, color_mode, image_topic, frame_id;
 	double exposure, frame_rate, publish_rate;
 	IS_RECT aoi_rect;
 
@@ -37,6 +37,7 @@ int main( int argc, char** argv )
 	local_nh.param<int>( "aoi_height", aoi_rect.s32Height, 1080 );
 	local_nh.param<int>( "aoi_x", aoi_rect.s32X, 20 );
 	local_nh.param<int>( "aoi_y", aoi_rect.s32Y, 50 );
+	local_nh.param<std::string>( "frame_id", frame_id, "base_link" );
 	local_nh.param<std::string>( "camera_name", camera_name, "camera" );
 	local_nh.param<std::string>( "image_topic", image_topic, "image_raw" );
 	local_nh.param<std::string>( "color_mode", color_mode, "mono8" );
@@ -45,7 +46,7 @@ int main( int argc, char** argv )
 	auto pub = it.advertiseCamera( camera_name + "/" + image_topic, 1 );
 
 	auto available_cameras = ueye::Camera::get_camera_list();
-	ROS_INFO("found %lu available cameras", available_cameras.size() );
+	ROS_INFO("found %lu available cameras, connecting to camera id=%d", available_cameras.size(), camera_id );
 
 	for ( auto cam : available_cameras )
 		ROS_INFO("id=%d serial='%s' model='%s'", cam.dwCameraID, cam.SerNo, cam.Model );
@@ -56,7 +57,7 @@ int main( int argc, char** argv )
 	if ( camera_info == available_cameras.end() ) 
 		{ ROS_ERROR("invalid camera id"); return 0; }
 	
-	ueye::Camera camera( *camera_info, frame_rate, color_mode, pixel_clock, aoi_rect ) ;
+	ueye::Camera camera( *camera_info, frame_id, frame_rate, color_mode, pixel_clock, aoi_rect ) ;
 
 	ROS_INFO("Publish_rate set to %.1f \t [equals frame actual frame rate set]", publish_rate);
 	ros::Rate spinner(publish_rate);

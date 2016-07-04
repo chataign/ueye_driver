@@ -35,7 +35,10 @@ class CameraFrame
 
 public:
 
-	CameraFrame( Camera& camera, int image_width, int image_height, const std::string& color_mode );
+	CameraFrame( Camera& camera, const std::string& frame_id, 
+			int image_width, int image_height, 
+			const std::string& color_mode );
+
 	virtual ~CameraFrame();
 
 	ros::Time get_timestamp() const;
@@ -70,7 +73,7 @@ public:
 	 * @param[in] aoi_rect Area Of Interest (AOI) rectangle
 	 * @throws std::exception if connection to camera fails
 	 */
-	Camera( const UEYE_CAMERA_INFO& device_info, double frame_rate,
+	Camera( const UEYE_CAMERA_INFO& device_info, const std::string& frame_id, double frame_rate,
 			const std::string& color_mode, int pixel_clock, const IS_RECT& aoi_rect );
 			
 	virtual ~Camera();
