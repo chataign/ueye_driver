@@ -1,6 +1,7 @@
 #include <ros/ros.h>
+#include <ros/names.h>
+
 #include <memory>
-#include <signal.h>
 #include <opencv/cv.h>
 
 #include <sensor_msgs/CameraInfo.h>
@@ -13,20 +14,21 @@
 
 int main( int argc, char** argv )
 {
-	ros::init( argc, argv, ROS_PACKAGE_NAME, ros::init_options::NoSigintHandler );
+	ros::init( argc, argv, ROS_PACKAGE_NAME );
 	ros::NodeHandle nh, local_nh("~");
 
-	bool external_trigger = false, hard_gamma = false;
-	int master_gain, timeout_ms, pixel_clock, blacklevel, gamma;
+	bool external_trigger = false, hardware_gamma = false;
+	int queue_size, master_gain, timeout_ms, pixel_clock, blacklevel, gamma;
 	std::string serial_no, camera_name, color_mode, image_topic, frame_id;
 	double exposure, frame_rate, publish_rate;
 	IS_RECT aoi_rect;
 
+	local_nh.param<int>( "queue_size", queue_size, 10 );
 	local_nh.param<int>( "pixel_clock", pixel_clock, 84 );
 	local_nh.param<double>( "exposure", exposure, 40 );
 	local_nh.param<int>( "blacklevel", blacklevel, 90 );
 	local_nh.param<int>( "gamma", gamma, 100 );
-	local_nh.param<bool>( "hardware_gamma", hard_gamma, false );
+	local_nh.param<bool>( "hardware_gamma", hardware_gamma, false );
 	local_nh.param<int>( "master_gain", master_gain, 0 );
 	local_nh.param<int>( "timeout_ms", timeout_ms, 100 );
 	local_nh.param<bool>( "external_trigger", external_trigger, false );
@@ -43,11 +45,11 @@ int main( int argc, char** argv )
 	local_nh.param<std::string>( "color_mode", color_mode, "mono8" );
 
 	image_transport::ImageTransport it(nh);
-	auto pub = it.advertiseCamera( camera_name + "/" + image_topic, 1 );
+	auto pub = it.advertiseCamera( ros::names::clean( camera_name + "/" + image_topic ), queue_size );
 
 	auto available_cameras = ueye::Camera::get_camera_list();
 
-	ROS_INFO("found %lu available cameras, connecting to camera no='%s'", 
+	ROS_INFO("found %lu available cameras, connecting to camera serial='%s'", 
 		available_cameras.size(), serial_no.c_str() );
 
 	for ( auto cam : available_cameras )
@@ -68,7 +70,7 @@ int main( int argc, char** argv )
 	camera.set_master_gain( master_gain );
 	camera.set_blacklevel(blacklevel);
 	camera.set_gamma(gamma);
-	if (hard_gamma) camera.set_hardware_gamma();
+	if (hardware_gamma) camera.set_hardware_gamma();
 	camera.start_capture( external_trigger );
 
 	while ( ros::ok() )
