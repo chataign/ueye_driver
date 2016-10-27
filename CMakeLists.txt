@@ -8,7 +8,7 @@ if( NOT COMPILER_SUPPORTS_CXX11 )
     message(FATAL_ERROR "The compiler ${CMAKE_CXX_COMPILER} has no C++11 support. Please use a different C++ compiler.")
 endif()
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Werror")
 set(CMAKE_BUILD_TYPE RelWithDebInfo)
 
 find_library(UEYE_LIBRARY ueye_api)
@@ -21,7 +21,7 @@ message(STATUS "ueye_api library: ${UEYE_LIBRARY}")
 message(STATUS "ueye_api include: ${UEYE_INCLUDE_DIR}")
 
 find_package(catkin REQUIRED COMPONENTS
-  roscpp image_transport sensor_msgs camera_calibration_parsers
+  roscpp image_transport nodelet sensor_msgs camera_calibration_parsers
 )
 
 catkin_package(
@@ -34,5 +34,5 @@ catkin_package(
 include_directories( ${catkin_INCLUDE_DIRS} ${UEYE_INCLUDE_DIR} )
 
 file( GLOB SOURCES src/*.cpp )
-add_executable( ${PROJECT_NAME} ${SOURCES} )
+add_library( ${PROJECT_NAME} ${SOURCES} )
 target_link_libraries( ${PROJECT_NAME} ${catkin_LIBRARIES} ${UEYE_LIBRARY} )

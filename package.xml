@@ -10,7 +10,12 @@
 
   <buildtool_depend>catkin</buildtool_depend>
   <depend>roscpp</depend>
+  <depend>nodelet</depend>
   <depend>image_transport</depend>
   <depend>camera_calibration_parsers</depend>
+
+  <export>
+    <nodelet plugin="${prefix}/nodelet_plugins.xml" />
+  </export>
 
 </package>
