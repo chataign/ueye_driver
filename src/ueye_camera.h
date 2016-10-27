@@ -29,8 +29,6 @@ struct DeviceSettings
     std::string frame_id; // frame ID in ROS image message
     double frame_rate; // desired frame rate in Hz
     IS_RECT aoi_rect; // Area Of Interest (AOI) rectangle
-
-    DeviceSettings( ros::NodeHandle& nh );
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -41,8 +39,6 @@ struct CaptureSettings
     bool external_trigger, hardware_gamma;
     int timeout_ms, master_gain, blacklevel, gamma;
     double exposure;
-    
-    CaptureSettings( ros::NodeHandle& nh );
 };
 
 ////////////////////////////////////////////////////////////////////////////////

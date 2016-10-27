@@ -1,5 +1,5 @@
 <launch>
-  <arg name="serial_no" />
+  <arg name="serial_no" default="" />
   
   <node pkg="nodelet" type="nodelet" name="standalone_nodelet" args="manager" output="screen"/>
 

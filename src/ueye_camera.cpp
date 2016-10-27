@@ -3,6 +3,7 @@
 #include <ctime>
 
 #include <ros/console.h>
+#include <nodelet/nodelet.h>
 #include <sensor_msgs/image_encodings.h>
 
 #include "ueye_camera.h"
@@ -40,7 +41,7 @@ Camera::Camera( const UEYE_CAMERA_INFO& device_info, const DeviceSettings& devic
     
 	UEYE_TRY( is_SetDisplayMode, device_info_.dwCameraID, IS_SET_DM_DIB );
 	UEYE_TRY( is_SetColorMode, device_info_.dwCameraID, color_mode );
-	ROS_INFO("color mode=%d", color_mode );
+	ROS_INFO("set color mode=%s (%d)", device_settings.color_mode.c_str(), color_mode );
 
 	ROS_INFO("AOI: tl=(%d,%d) width=%d height=%d", 
 	    device_settings.aoi_rect.s32X, 
@@ -51,15 +52,36 @@ Camera::Camera( const UEYE_CAMERA_INFO& device_info, const DeviceSettings& devic
 	UEYE_TRY( is_AOI, device_info_.dwCameraID, IS_AOI_IMAGE_SET_AOI, 
 	    (void*)&device_settings.aoi_rect, sizeof(device_settings.aoi_rect) );
 
-	// Set pixel clock. Range: [10 - 128]
-	UEYE_TRY(is_PixelClock, device_info_.dwCameraID, IS_PIXELCLOCK_CMD_SET, 
-		(void*)&device_settings.pixel_clock, sizeof(device_settings.pixel_clock) );
-	ROS_INFO("Pixel clocks set to %dMHz", device_settings.pixel_clock);
+    // (from UEye documentation)
+    // In general, the pixel clock is set once when opening the camera and will not be changed. 
+    // Note that, if you change the pixel clock, the setting ranges for frame rate and exposure 
+    // time also changes. If you change a parameter, the following order is recommended:
+    // 1. Change pixel clock.
+    // 2. Query frame rate range and, if applicable, set new value.
+    // 3. Query exposure time range and, if applicable, set new value.
+
+    UINT pixel_clock_range[3]; // [ min, max, increment ]
+    ZeroMemory( pixel_clock_range, sizeof(pixel_clock_range) );
+     
+    UEYE_TRY( is_PixelClock, device_info_.dwCameraID, IS_PIXELCLOCK_CMD_GET_RANGE, 
+        (void*)pixel_clock_range, sizeof(pixel_clock_range) );
+
+	try { UEYE_TRY(is_PixelClock, device_info_.dwCameraID, IS_PIXELCLOCK_CMD_SET, 
+		(void*)&device_settings.pixel_clock, sizeof(device_settings.pixel_clock) ) }
+	catch( const std::exception& e ) { ROS_WARN( "failed to set pixel clock: %s", e.what() ); }
+
+    UINT pixel_clock_actual; 
+
+    UEYE_TRY( is_PixelClock, device_info_.dwCameraID, IS_PIXELCLOCK_CMD_GET, 
+        (void*)&pixel_clock_actual, sizeof(pixel_clock_actual) );
+
+	ROS_INFO("pixel clock: requested=%dMHz actual=%d (min=%u max=%u)", 
+	    device_settings.pixel_clock, pixel_clock_actual, pixel_clock_range[0], pixel_clock_range[1] );
 
 	//Set the frame rate. First, see what's the maximum (it varies with pixelclock)
-	double min, max, interval;
-	UEYE_TRY(is_GetFrameTimeRange, device_info_.dwCameraID, &min, &max, &interval );
-	ROS_INFO("Maximum possible frame rate: %f", 1/min);
+	double min_time, max_time, interval;
+	UEYE_TRY(is_GetFrameTimeRange, device_info_.dwCameraID, &min_time, &max_time, &interval );
+	ROS_INFO("Maximum possible frame rate: %.1f", 1/min_time);
 
 	double actual_rate=0;
 	UEYE_TRY(is_SetFrameRate, device_info_.dwCameraID, device_settings.frame_rate, &actual_rate );
@@ -291,35 +313,6 @@ std::vector<UEYE_CAMERA_INFO> Camera::get_camera_list()
 
 	delete [] cam_list;
 	return cameras;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-
-DeviceSettings::DeviceSettings( ros::NodeHandle& nh )
-{
-    nh.param<int>( "pixel_clock", pixel_clock, 84 );
-    nh.param<double>( "frame_rate", frame_rate, 25 );
-    nh.param<int>( "aoi_width", aoi_rect.s32Width, 1080 );
-    nh.param<int>( "aoi_height", aoi_rect.s32Height, 1080 );
-    nh.param<int>( "aoi_x", aoi_rect.s32X, 20 );
-    nh.param<int>( "aoi_y", aoi_rect.s32Y, 50 );
-    nh.param<std::string>( "frame_id", frame_id, "base_link" );
-    nh.param<std::string>( "color_mode", color_mode, "mono8" );
-}
-
-////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-
-CaptureSettings::CaptureSettings( ros::NodeHandle& nh )
-{
-    nh.param<bool>( "external_trigger", external_trigger, false );
-    nh.param<bool>( "hardware_gamma", hardware_gamma, false );
-    nh.param<int>( "timeout_ms", timeout_ms, 100 );
-    nh.param<int>( "master_gain", master_gain, 0 );
-    nh.param<int>( "blacklevel", blacklevel, 90 );
-    nh.param<int>( "gamma", gamma, 100 );
-    nh.param<double>( "exposure", exposure, 40 );
 }
 
 ////////////////////////////////////////////////////////////////////////////////
