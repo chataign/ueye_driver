@@ -1,5 +1,5 @@
 <library path="lib/libueye_driver">
-  <class name="ueye_driver/DriverNodelet" type="ueye_driver_ns::DriverNodelet" base_class_type="nodelet::Nodelet">
+  <class name="ueye_driver/UeyeDriver" type="ueye_driver_ns::UeyeDriver" base_class_type="nodelet::Nodelet">
   <description>Ueye Driver nodelet</description>
   </class>
 </library>

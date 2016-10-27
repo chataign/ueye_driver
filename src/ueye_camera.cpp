@@ -33,6 +33,7 @@ static const std::map< std::string, ColorMode > color_modes = {
 
 Camera::Camera( const UEYE_CAMERA_INFO& device_info, const DeviceSettings& device_settings )
 	: device_info_( device_info )
+	, camera_info_( boost::make_shared<sensor_msgs::CameraInfo>() )
 {
 	ROS_INFO("opening camera id=%d serial=%s", device_info_.dwCameraID, device_info_.SerNo );
 	UEYE_TRY( is_InitCamera, (HIDS*) &device_info_.dwCameraID, NULL );
@@ -239,25 +240,26 @@ CameraFrame::CameraFrame( Camera& camera, const DeviceSettings& device_settings 
 {
 	uint16_t bits_per_pixel = color_modes.at(device_settings.color_mode).bits_per_pixel;
 
-    image_.header.frame_id = device_settings.frame_id;
-	image_.is_bigendian = false;
-	image_.encoding = device_settings.color_mode;
-	image_.width  = device_settings.aoi_rect.s32Width;
-	image_.height = device_settings.aoi_rect.s32Height;
-	image_.step = image_.width * bits_per_pixel / 8;
-	image_.data.resize( image_.height * image_.step );
+    image_ = boost::make_shared<sensor_msgs::Image>();
+    image_->header.frame_id = device_settings.frame_id;
+	image_->is_bigendian = false;
+	image_->encoding = device_settings.color_mode;
+	image_->width  = device_settings.aoi_rect.s32Width;
+	image_->height = device_settings.aoi_rect.s32Height;
+	image_->step = image_->width * bits_per_pixel / 8;
+	image_->data.resize( image_->height * image_->step );
 
 	ROS_INFO("allocating %dx%d image depth=%d",
-		image_.width, image_.height, bits_per_pixel );
+		image_->width, image_->height, bits_per_pixel );
 
 	// set the camera buffer to be that of the internal
 	// sensor_msgs::Image object to avoid unecessary data copies
 
 	UEYE_TRY( is_SetAllocatedImageMem, camera_id_,
-		image_.width, image_.height, bits_per_pixel,
-		(char*) &image_.data[0], &buffer_id_ );
+		image_->width, image_->height, bits_per_pixel,
+		(char*) &image_->data[0], &buffer_id_ );
 
-	UEYE_TRY( is_SetImageMem, camera_id_, (char*) &image_.data[0], buffer_id_ );
+	UEYE_TRY( is_SetImageMem, camera_id_, (char*) &image_->data[0], buffer_id_ );
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -267,7 +269,7 @@ CameraFrame::~CameraFrame()
 {
 	// is_FreeImageMem() does not release the memory, it only removes it from driver management
 	// the memory itself is release when the sensor_msgs::Image object is destroyed
-	UEYE_TRY( is_FreeImageMem, camera_id_, (char*) &image_.data[0], buffer_id_ );
+	UEYE_TRY( is_FreeImageMem, camera_id_, (char*) &image_->data[0], buffer_id_ );
 }
 
 ////////////////////////////////////////////////////////////////////////////////

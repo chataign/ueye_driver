@@ -55,7 +55,7 @@ class CameraFrame
 {
 	const int camera_id_;
 	int buffer_id_;
-	sensor_msgs::Image image_;
+	sensor_msgs::Image::Ptr image_;
 
 public:
 
@@ -64,8 +64,8 @@ public:
 	virtual ~CameraFrame();
 
 	ros::Time get_timestamp() const;
-	void update_timestamp() { image_.header.stamp = get_timestamp(); }
-	const sensor_msgs::Image& get_image() const { return image_; }
+	void update_timestamp() { image_->header.stamp = get_timestamp(); }
+	sensor_msgs::Image::ConstPtr get_image() const { return image_; }
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -81,7 +81,7 @@ class Camera
 	friend class CameraFrame;
 
 	const UEYE_CAMERA_INFO device_info_;
-	sensor_msgs::CameraInfo camera_info_;
+	sensor_msgs::CameraInfo::Ptr camera_info_;
 	std::shared_ptr<CameraFrame> frame_;
 
 public:
@@ -99,7 +99,7 @@ public:
 			
 	virtual ~Camera();
 
-    const sensor_msgs::CameraInfo& get_info() const { return camera_info_; }
+    sensor_msgs::CameraInfo::ConstPtr get_info() const { return camera_info_; }
 	bool set_master_gain( uint8_t master_gain ); // in [0,100]
 	bool set_exposure( double exposure );
 	bool set_blacklevel( int blacklevel );

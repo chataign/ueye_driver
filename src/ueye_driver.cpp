@@ -19,13 +19,13 @@ namespace ueye_driver_ns {
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-struct DriverNodelet : public nodelet::Nodelet
+struct UeyeDriver : public nodelet::Nodelet
 {
     bool capture_alive_;
     thread capture_thread_;
     
-    DriverNodelet(): capture_alive_(false) {}
-    virtual ~DriverNodelet() { stop(); }
+    UeyeDriver(): capture_alive_(false) {}
+    virtual ~UeyeDriver() { stop(); }
     
     virtual void onInit()
     {
@@ -40,7 +40,7 @@ struct DriverNodelet : public nodelet::Nodelet
 	    priv_nh.param<string>   ( "serial_no",      serial_no,                              "" );
 	    priv_nh.param<string>   ( "camera_name",    camera_name,                            "camera" );
 	    priv_nh.param<string>   ( "topic_name",     topic_name,                             "image_raw" );
-        priv_nh.param<int>      ( "pixel_clock",    device_settings.pixel_clock,            35 );
+        priv_nh.param<int>      ( "pixel_clock",    device_settings.pixel_clock,            84 );
         priv_nh.param<double>   ( "frame_rate",     device_settings.frame_rate,             25 );
         priv_nh.param<int>      ( "aoi_width",      device_settings.aoi_rect.s32Width,      1080 );
         priv_nh.param<int>      ( "aoi_height",     device_settings.aoi_rect.s32Height,     1080 );
@@ -71,7 +71,7 @@ struct DriverNodelet : public nodelet::Nodelet
 	    if ( camera_info == available_cameras.end() ) 
 		    { ROS_ERROR("invalid camera id"); return; }
 	      
-        capture_thread_ = thread( bind( &DriverNodelet::capture_loop, this, 
+        capture_thread_ = thread( bind( &UeyeDriver::capture_loop, this, 
             *camera_info, device_settings, capture_settings, camera_topic, ros::Rate(publish_rate) ) );
     }
     
@@ -88,7 +88,7 @@ struct DriverNodelet : public nodelet::Nodelet
         NODELET_INFO("starting capture thread");
         camera.start_capture( capture_settings );
         capture_alive_ = true;
-        
+
         while ( capture_alive_ && ros::ok() )
 	    {
 		    const ueye::CameraFrame* frame = camera.get_frame( capture_settings.timeout_ms );
@@ -116,5 +116,5 @@ struct DriverNodelet : public nodelet::Nodelet
 } // namespace ueye_driver_ns
 
 #include <pluginlib/class_list_macros.h>
-PLUGINLIB_EXPORT_CLASS( ueye_driver_ns::DriverNodelet, nodelet::Nodelet ) 
+PLUGINLIB_EXPORT_CLASS( ueye_driver_ns::UeyeDriver, nodelet::Nodelet ) 
 
