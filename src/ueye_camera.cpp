@@ -30,24 +30,31 @@ static const std::map< std::string, ColorMode > color_modes = {
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-Camera::Camera( const UEYE_CAMERA_INFO& device_info, const std::string& frame_id, double frame_rate,
-		const std::string& color_mode, int pixel_clock, const IS_RECT& aoi_rect )
+Camera::Camera( const UEYE_CAMERA_INFO& device_info, const DeviceSettings& device_settings )
 	: device_info_( device_info )
 {
 	ROS_INFO("opening camera id=%d serial=%s", device_info_.dwCameraID, device_info_.SerNo );
 	UEYE_TRY( is_InitCamera, (HIDS*) &device_info_.dwCameraID, NULL );
 
+    auto color_mode = color_modes.at(device_settings.color_mode).ueye_mode;
+    
 	UEYE_TRY( is_SetDisplayMode, device_info_.dwCameraID, IS_SET_DM_DIB );
-	UEYE_TRY( is_SetColorMode, device_info_.dwCameraID, color_modes.at(color_mode).ueye_mode );
-	ROS_INFO("color mode=%d", color_modes.at(color_mode).ueye_mode);
+	UEYE_TRY( is_SetColorMode, device_info_.dwCameraID, color_mode );
+	ROS_INFO("color mode=%d", color_mode );
 
-	ROS_INFO("AOI: tl=(%d,%d) width=%d height=%d", aoi_rect.s32X, aoi_rect.s32Y, aoi_rect.s32Width, aoi_rect.s32Height );
-	UEYE_TRY( is_AOI, device_info_.dwCameraID, IS_AOI_IMAGE_SET_AOI, (void*)&aoi_rect, sizeof(aoi_rect) );
+	ROS_INFO("AOI: tl=(%d,%d) width=%d height=%d", 
+	    device_settings.aoi_rect.s32X, 
+	    device_settings.aoi_rect.s32Y, 
+	    device_settings.aoi_rect.s32Width, 
+	    device_settings.aoi_rect.s32Height );
+
+	UEYE_TRY( is_AOI, device_info_.dwCameraID, IS_AOI_IMAGE_SET_AOI, 
+	    (void*)&device_settings.aoi_rect, sizeof(device_settings.aoi_rect) );
 
 	// Set pixel clock. Range: [10 - 128]
 	UEYE_TRY(is_PixelClock, device_info_.dwCameraID, IS_PIXELCLOCK_CMD_SET, 
-		(void*)&pixel_clock, sizeof(pixel_clock) );
-	ROS_INFO("Pixel clocks set to %dMHz", pixel_clock);
+		(void*)&device_settings.pixel_clock, sizeof(device_settings.pixel_clock) );
+	ROS_INFO("Pixel clocks set to %dMHz", device_settings.pixel_clock);
 
 	//Set the frame rate. First, see what's the maximum (it varies with pixelclock)
 	double min, max, interval;
@@ -55,10 +62,10 @@ Camera::Camera( const UEYE_CAMERA_INFO& device_info, const std::string& frame_id
 	ROS_INFO("Maximum possible frame rate: %f", 1/min);
 
 	double actual_rate=0;
-	UEYE_TRY(is_SetFrameRate, device_info_.dwCameraID, frame_rate, &actual_rate );
-	ROS_INFO("frame rate: requested=%.1fHz actual=%.1fHz", frame_rate, actual_rate );
+	UEYE_TRY(is_SetFrameRate, device_info_.dwCameraID, device_settings.frame_rate, &actual_rate );
+	ROS_INFO("frame rate: requested=%.1fHz actual=%.1fHz", device_settings.frame_rate, actual_rate );
 
-	frame_ = std::make_shared<CameraFrame>( *this, frame_id, aoi_rect.s32Width, aoi_rect.s32Height, color_mode );
+	frame_ = std::make_shared<CameraFrame>( *this, device_settings );
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -109,6 +116,20 @@ void Camera::start_capture( bool external_trigger )
 		UEYE_TRY( is_EnableEvent, device_info_.dwCameraID, IS_SET_EVENT_FRAME );
 		UEYE_TRY( is_CaptureVideo, device_info_.dwCameraID, IS_WAIT );
 	}
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+void Camera::start_capture( const CaptureSettings& settings )
+{
+    set_exposure( settings.exposure );
+    set_master_gain( settings.master_gain );
+    set_blacklevel( settings.blacklevel );
+    set_gamma( settings.gamma );
+    if ( settings.hardware_gamma ) set_hardware_gamma();
+    
+    start_capture( settings.external_trigger );
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -190,19 +211,17 @@ bool Camera::set_hardware_gamma()
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-CameraFrame::CameraFrame( Camera& camera, const std::string& frame_id, 
-				int image_width, int image_height, 
-				const std::string& color_mode )
+CameraFrame::CameraFrame( Camera& camera, const DeviceSettings& device_settings )
 	: camera_id_( camera.device_info_.dwCameraID )
 	, buffer_id_(0)
 {
-	uint16_t bits_per_pixel = color_modes.at(color_mode).bits_per_pixel;
+	uint16_t bits_per_pixel = color_modes.at(device_settings.color_mode).bits_per_pixel;
 
-    image_.header.frame_id = frame_id;
+    image_.header.frame_id = device_settings.frame_id;
 	image_.is_bigendian = false;
-	image_.encoding = color_mode;
-	image_.width  = image_width;
-	image_.height = image_height;
+	image_.encoding = device_settings.color_mode;
+	image_.width  = device_settings.aoi_rect.s32Width;
+	image_.height = device_settings.aoi_rect.s32Height;
 	image_.step = image_.width * bits_per_pixel / 8;
 	image_.data.resize( image_.height * image_.step );
 
@@ -272,6 +291,35 @@ std::vector<UEYE_CAMERA_INFO> Camera::get_camera_list()
 
 	delete [] cam_list;
 	return cameras;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+DeviceSettings::DeviceSettings( ros::NodeHandle& nh )
+{
+    nh.param<int>( "pixel_clock", pixel_clock, 84 );
+    nh.param<double>( "frame_rate", frame_rate, 25 );
+    nh.param<int>( "aoi_width", aoi_rect.s32Width, 1080 );
+    nh.param<int>( "aoi_height", aoi_rect.s32Height, 1080 );
+    nh.param<int>( "aoi_x", aoi_rect.s32X, 20 );
+    nh.param<int>( "aoi_y", aoi_rect.s32Y, 50 );
+    nh.param<std::string>( "frame_id", frame_id, "base_link" );
+    nh.param<std::string>( "color_mode", color_mode, "mono8" );
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+CaptureSettings::CaptureSettings( ros::NodeHandle& nh )
+{
+    nh.param<bool>( "external_trigger", external_trigger, false );
+    nh.param<bool>( "hardware_gamma", hardware_gamma, false );
+    nh.param<int>( "timeout_ms", timeout_ms, 100 );
+    nh.param<int>( "master_gain", master_gain, 0 );
+    nh.param<int>( "blacklevel", blacklevel, 90 );
+    nh.param<int>( "gamma", gamma, 100 );
+    nh.param<double>( "exposure", exposure, 40 );
 }
 
 ////////////////////////////////////////////////////////////////////////////////

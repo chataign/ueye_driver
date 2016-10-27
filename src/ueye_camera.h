@@ -5,6 +5,7 @@
 #include <memory>
 #include <cstdint>
 
+#include <ros/ros.h>
 #include <opencv/cv.h>
 #include <ros/time.h>
 #include <ueye.h>
@@ -17,10 +18,37 @@
 
 namespace ueye
 {
-class Camera;	// forward declaration
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
+
+struct DeviceSettings
+{
+    int pixel_clock; // pixel clock in MHz
+    std::string color_mode; // ROS color encoding (see sensor_msgs/image_encodings.h)
+    std::string frame_id; // frame ID in ROS image message
+    double frame_rate; // desired frame rate in Hz
+    IS_RECT aoi_rect; // Area Of Interest (AOI) rectangle
+
+    DeviceSettings( ros::NodeHandle& nh );
+};
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+struct CaptureSettings
+{
+    bool external_trigger, hardware_gamma;
+    int timeout_ms, master_gain, blacklevel, gamma;
+    double exposure;
+    
+    CaptureSettings( ros::NodeHandle& nh );
+};
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+class Camera;	// forward declaration
 
 /**
  * @class CameraFrame
@@ -35,9 +63,7 @@ class CameraFrame
 
 public:
 
-	CameraFrame( Camera& camera, const std::string& frame_id, 
-			int image_width, int image_height, 
-			const std::string& color_mode );
+	CameraFrame( Camera& camera, const DeviceSettings& device_settings );
 
 	virtual ~CameraFrame();
 
@@ -73,8 +99,7 @@ public:
 	 * @param[in] aoi_rect Area Of Interest (AOI) rectangle
 	 * @throws std::exception if connection to camera fails
 	 */
-	Camera( const UEYE_CAMERA_INFO& device_info, const std::string& frame_id, double frame_rate,
-			const std::string& color_mode, int pixel_clock, const IS_RECT& aoi_rect );
+	Camera( const UEYE_CAMERA_INFO& device_info, const DeviceSettings& device_settings );
 			
 	virtual ~Camera();
 
@@ -84,7 +109,9 @@ public:
 	bool set_blacklevel( int blacklevel );
 	bool set_gamma( int gamma );
 	bool set_hardware_gamma();
+	
 	void start_capture( bool external_trigger );
+    void start_capture( const CaptureSettings& settings );
     
 	/**
 	 * Poll next frame
