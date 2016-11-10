@@ -44,7 +44,7 @@ struct UeyeDriver : public nodelet::Nodelet
         priv_nh.param<double>   ( "frame_rate",     device_settings.frame_rate,             25 );
         priv_nh.param<int>      ( "aoi_width",      device_settings.aoi_rect.s32Width,      1080 );
         priv_nh.param<int>      ( "aoi_height",     device_settings.aoi_rect.s32Height,     1080 );
-        priv_nh.param<int>      ( "aoi_x",          device_settings.aoi_rect.s32X,          20 );
+        priv_nh.param<int>      ( "aoi_x",          device_settings.aoi_rect.s32X,          220 );
         priv_nh.param<int>      ( "aoi_y",          device_settings.aoi_rect.s32Y,          50 );
         priv_nh.param<string>   ( "frame_id",       device_settings.frame_id,               "base_link" );
         priv_nh.param<string>   ( "color_mode",     device_settings.color_mode,             "mono8" );
@@ -59,7 +59,7 @@ struct UeyeDriver : public nodelet::Nodelet
 	    auto camera_topic = ros::names::clean( camera_name + "/" + topic_name );
 	    auto available_cameras = ueye::Camera::get_camera_list();
 
-	    NODELET_INFO("found %lu available cameras, connecting to camera serial='%s'", 
+	    NODELET_INFO("found %u available cameras, connecting to camera serial='%s'", 
 		    available_cameras.size(), serial_no.c_str() );
 
 	    for ( auto cam : available_cameras )
