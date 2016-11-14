@@ -60,7 +60,7 @@ struct UeyeDriver : public nodelet::Nodelet
 	    auto available_cameras = ueye::Camera::get_camera_list();
 
 	    NODELET_INFO("found %u available cameras, connecting to camera serial='%s'", 
-		    available_cameras.size(), serial_no.c_str() );
+		    (unsigned)available_cameras.size(), serial_no.c_str() );
 
 	    for ( auto cam : available_cameras )
 		    NODELET_INFO("id=%d serial='%s' model='%s'", cam.dwCameraID, cam.SerNo, cam.Model );
