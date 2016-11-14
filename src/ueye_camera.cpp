@@ -1,6 +1,7 @@
 #include <stdexcept>
 #include <vector>
 #include <ctime>
+using namespace std;
 
 #include <ros/console.h>
 #include <nodelet/nodelet.h>
@@ -11,7 +12,7 @@
 namespace ueye
 {
 #define UEYE_TRY( FUNC, ... ) { INT err = (FUNC)(__VA_ARGS__); if ( err != IS_SUCCESS ) { \
-	throw std::runtime_error( std::string(#FUNC)+" failed, error="+std::to_string(err) ); } }
+	throw runtime_error( string(#FUNC)+" failed, error="+to_string(err) ); } }
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -22,7 +23,7 @@ struct ColorMode
 	uint16_t bits_per_pixel;
 };
 
-static const std::map< std::string, ColorMode > color_modes = {
+static const map< string, ColorMode > color_modes = {
 	{ sensor_msgs::image_encodings::MONO8, { IS_CM_MONO8,         8 } },
 	{ sensor_msgs::image_encodings::BGR8,  { IS_CM_BGR8_PACKED,  24 } },
 	{ sensor_msgs::image_encodings::RGB8,  { IS_CM_RGB8_PACKED,  24 } }
@@ -34,6 +35,8 @@ static const std::map< std::string, ColorMode > color_modes = {
 Camera::Camera( const UEYE_CAMERA_INFO& device_info, const DeviceSettings& device_settings )
 	: device_info_( device_info )
 	, camera_info_( boost::make_shared<sensor_msgs::CameraInfo>() )
+	, configured_(false)
+	, timeout_ms_(0)
 {
 	ROS_INFO("opening camera id=%d serial=%s", device_info_.dwCameraID, device_info_.SerNo );
 	UEYE_TRY( is_InitCamera, (HIDS*) &device_info_.dwCameraID, NULL );
@@ -69,7 +72,7 @@ Camera::Camera( const UEYE_CAMERA_INFO& device_info, const DeviceSettings& devic
 
 	try { UEYE_TRY(is_PixelClock, device_info_.dwCameraID, IS_PIXELCLOCK_CMD_SET, 
 		(void*)&device_settings.pixel_clock, sizeof(device_settings.pixel_clock) ) }
-	catch( const std::exception& e ) { ROS_WARN( "failed to set pixel clock: %s", e.what() ); }
+	catch( const exception& e ) { ROS_WARN( "failed to set pixel clock: %s", e.what() ); }
 
     UINT pixel_clock_actual; 
 
@@ -88,7 +91,7 @@ Camera::Camera( const UEYE_CAMERA_INFO& device_info, const DeviceSettings& devic
 	UEYE_TRY(is_SetFrameRate, device_info_.dwCameraID, device_settings.frame_rate, &actual_rate );
 	ROS_INFO("frame rate: requested=%.1fHz actual=%.1fHz", device_settings.frame_rate, actual_rate );
 
-	frame_ = std::make_shared<CameraFrame>( *this, device_settings );
+	frame_ = make_shared<CameraFrame>( *this, device_settings );
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -103,20 +106,30 @@ Camera::~Camera()
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-bool Camera::set_master_gain( uint8_t master_gain )
+void Camera::enable_reconfigure( ros::NodeHandle& reconfigure_nh )
 {
-	if ( is_SetGainBoost( device_info_.dwCameraID, IS_GET_SUPPORTED_GAINBOOST ) != IS_SET_GAINBOOST_ON )
+    reconfigure_server_ = make_shared<reconfigure_server_t>(reconfigure_nh);
+    reconfigure_server_->setCallback( boost::bind( &Camera::reconfigure_callback, this, _1, _2 ) );
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+bool Camera::set_master_gain( DWORD camera_id, uint8_t master_gain )
+{
+	if ( is_SetGainBoost( camera_id, IS_GET_SUPPORTED_GAINBOOST ) != IS_SET_GAINBOOST_ON )
 		{ ROS_WARN("hardware gain not supported"); return false; }
 
 	if ( master_gain == 0 )	// disable gain
 	{
-		UEYE_TRY( is_SetGainBoost, device_info_.dwCameraID, IS_SET_GAINBOOST_OFF );
+		UEYE_TRY( is_SetGainBoost, camera_id, IS_SET_GAINBOOST_OFF );
+		ROS_INFO( "Master gain disabled" );
 	}
 	else
 	{
 		ROS_INFO( "Master gain set to %d, gain boost activated", master_gain );
-		UEYE_TRY( is_SetGainBoost, device_info_.dwCameraID, IS_SET_GAINBOOST_ON );
-		UEYE_TRY( is_SetHardwareGain, device_info_.dwCameraID, master_gain,
+		UEYE_TRY( is_SetGainBoost, camera_id, IS_SET_GAINBOOST_ON );
+		UEYE_TRY( is_SetHardwareGain, camera_id, master_gain,
 			IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER );
 	}
 
@@ -126,41 +139,52 @@ bool Camera::set_master_gain( uint8_t master_gain )
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-void Camera::start_capture( bool external_trigger )
+void Camera::start_capture()
 {
-	if ( external_trigger )
-	{
-		UEYE_TRY( is_EnableEvent, device_info_.dwCameraID, IS_SET_EVENT_FRAME );
-		UEYE_TRY( is_SetExternalTrigger, device_info_.dwCameraID, IS_SET_TRIGGER_HI_LO );
-		UEYE_TRY( is_CaptureVideo, device_info_.dwCameraID, IS_DONT_WAIT );
-	}
-	else // freerun mode
-	{
-		UEYE_TRY( is_EnableEvent, device_info_.dwCameraID, IS_SET_EVENT_FRAME );
-		UEYE_TRY( is_CaptureVideo, device_info_.dwCameraID, IS_WAIT );
-	}
-}
-
-////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-
-void Camera::start_capture( const CaptureSettings& settings )
-{
-    set_exposure( settings.exposure );
-    set_master_gain( settings.master_gain );
-    set_blacklevel( settings.blacklevel );
-    set_gamma( settings.gamma );
-    if ( settings.hardware_gamma ) set_hardware_gamma();
+    lock_guard<mutex> scoped_lock(mutex_);
     
-    start_capture( settings.external_trigger );
+    // external trigger
+    //	UEYE_TRY( is_EnableEvent, device_info_.dwCameraID, IS_SET_EVENT_FRAME );
+    //	UEYE_TRY( is_SetExternalTrigger, device_info_.dwCameraID, IS_SET_TRIGGER_HI_LO );
+    //	UEYE_TRY( is_CaptureVideo, device_info_.dwCameraID, IS_DONT_WAIT );
+
+    // freerun mode
+	UEYE_TRY( is_EnableEvent, device_info_.dwCameraID, IS_SET_EVENT_FRAME );
+	UEYE_TRY( is_CaptureVideo, device_info_.dwCameraID, IS_WAIT );
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-const CameraFrame* Camera::get_frame( int timeout_ms )
+void Camera::apply_config( const CaptureConfig& config )
 {
-	switch ( is_WaitEvent( device_info_.dwCameraID, IS_SET_EVENT_FRAME, timeout_ms ) )
+    lock_guard<mutex> scoped_lock(mutex_);
+    
+    timeout_ms_ = config.timeout_ms;
+    
+    set_exposure( device_info_.dwCameraID, config.exposure );
+    set_master_gain( device_info_.dwCameraID, config.master_gain );
+    set_blacklevel( device_info_.dwCameraID, config.blacklevel );
+    set_gamma( device_info_.dwCameraID, config.gamma );
+    if ( config.hardware_gamma ) set_hardware_gamma( device_info_.dwCameraID );
+    
+    configured_ = true;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+const CameraFrame* Camera::get_frame()
+{
+    lock_guard<mutex> scoped_lock(mutex_);
+        
+    if (!configured_)
+    {
+        ROS_WARN_THROTTLE( 1, "camera not configured!" );
+        return NULL;
+    }
+    
+	switch ( is_WaitEvent( device_info_.dwCameraID, IS_SET_EVENT_FRAME, timeout_ms_ ) )
 	{
 	case IS_SUCCESS:
 		frame_->update_timestamp();
@@ -169,23 +193,23 @@ const CameraFrame* Camera::get_frame( int timeout_ms )
 		return NULL;
 	default:
 		UEYE_TRY( is_DisableEvent, device_info_.dwCameraID, IS_SET_EVENT_FRAME );
-		throw std::runtime_error("failed to get frame");
+		throw runtime_error("failed to get frame");
 	}
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-bool Camera::set_exposure( double exposure )
+bool Camera::set_exposure( DWORD camera_id, double exposure )
 {
 	double max_exposure;
 	//Set the exposure time. First see what's the maximum (it varies with framerate)
-	UEYE_TRY(is_Exposure, device_info_.dwCameraID, IS_EXPOSURE_CMD_GET_EXPOSURE_RANGE_MAX,
+	UEYE_TRY(is_Exposure, camera_id, IS_EXPOSURE_CMD_GET_EXPOSURE_RANGE_MAX,
 			(void*)&max_exposure, sizeof(max_exposure));
 	ROS_INFO("Maximum exposure (given by frame rate) is %.1f ", max_exposure);
 
 	//Set the exposure time it to this maximum.
-	UEYE_TRY(is_Exposure,device_info_.dwCameraID, IS_EXPOSURE_CMD_SET_EXPOSURE,
+	UEYE_TRY(is_Exposure, camera_id, IS_EXPOSURE_CMD_SET_EXPOSURE,
 			(void*)&exposure, sizeof(exposure));
 	ROS_INFO("Exposure set to %.1f", exposure);
 
@@ -195,10 +219,10 @@ bool Camera::set_exposure( double exposure )
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-bool Camera::set_blacklevel(int blacklevel)
+bool Camera::set_blacklevel( DWORD camera_id, int blacklevel )
 {
 	//Set the new offset
-	UEYE_TRY(is_Blacklevel, device_info_.dwCameraID, IS_BLACKLEVEL_CMD_SET_OFFSET,
+	UEYE_TRY(is_Blacklevel, camera_id, IS_BLACKLEVEL_CMD_SET_OFFSET,
 			(void*)&blacklevel, sizeof(blacklevel));
 	ROS_INFO("Black level offset set to %d", blacklevel);
 
@@ -208,13 +232,16 @@ bool Camera::set_blacklevel(int blacklevel)
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-bool Camera::set_gamma(INT gamma)
+bool Camera::set_gamma( DWORD camera_id, INT gamma )
 {
+	ROS_INFO("Setting software gamma to %d", gamma );
+	
 	//Set software gamma. Hardware gamma correction should suffice
-	UEYE_TRY(is_Gamma, device_info_.dwCameraID, IS_GAMMA_CMD_SET, (void*) &gamma, sizeof(gamma));
+	UEYE_TRY(is_Gamma, camera_id, IS_GAMMA_CMD_SET, (void*) &gamma, sizeof(gamma));
 	INT gamma_get;
-	UEYE_TRY(is_Gamma, device_info_.dwCameraID, IS_GAMMA_CMD_GET, (void*) &gamma_get, sizeof(gamma_get));
-	ROS_INFO("Software gamma set to %d", gamma_get);
+	UEYE_TRY(is_Gamma, camera_id, IS_GAMMA_CMD_GET, (void*) &gamma_get, sizeof(gamma_get));
+	
+	if ( gamma_get != gamma ) ROS_WARN("Failed to set software gamma: requested=%d actual=%d", gamma, gamma_get);
 
 	return true;
 }
@@ -222,10 +249,10 @@ bool Camera::set_gamma(INT gamma)
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-bool Camera::set_hardware_gamma()
+bool Camera::set_hardware_gamma( DWORD camera_id )
 {
 	//	Enable hardware gamma correction
-	UEYE_TRY(is_SetHardwareGamma, device_info_.dwCameraID, IS_SET_HW_GAMMA_ON );
+	UEYE_TRY( is_SetHardwareGamma, camera_id, IS_SET_HW_GAMMA_ON );
 	ROS_INFO("Hardware gamma correction set");
 
 	return true;
@@ -295,9 +322,9 @@ ros::Time CameraFrame::get_timestamp() const
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-std::vector<UEYE_CAMERA_INFO> Camera::get_camera_list()
+vector<UEYE_CAMERA_INFO> Camera::get_camera_list()
 {
-	std::vector<UEYE_CAMERA_INFO> cameras;
+	vector<UEYE_CAMERA_INFO> cameras;
 
 	INT num_cameras;
 	UEYE_TRY( is_GetNumberOfCameras, &num_cameras );

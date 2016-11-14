@@ -4,6 +4,7 @@
 #include <string>
 #include <memory>
 #include <cstdint>
+#include <mutex>
 
 #include <ros/ros.h>
 #include <opencv/cv.h>
@@ -12,6 +13,9 @@
 
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/CameraInfo.h>
+
+#include <ueye_driver/CaptureConfig.h>
+#include <dynamic_reconfigure/server.h>
 
 // Driver for IDS uEye camera
 // @see https://en.ids-imaging.com/manuals/uEye_SDK/EN/uEye_Manual/index.html
@@ -29,16 +33,6 @@ struct DeviceSettings
     std::string frame_id; // frame ID in ROS image message
     double frame_rate; // desired frame rate in Hz
     IS_RECT aoi_rect; // Area Of Interest (AOI) rectangle
-};
-
-////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-
-struct CaptureSettings
-{
-    bool external_trigger, hardware_gamma;
-    int timeout_ms, master_gain, blacklevel, gamma;
-    double exposure;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -79,10 +73,15 @@ public:
 class Camera
 {
 	friend class CameraFrame;
-
+    typedef dynamic_reconfigure::Server<CaptureConfig> reconfigure_server_t;
+    
 	const UEYE_CAMERA_INFO device_info_;
 	sensor_msgs::CameraInfo::Ptr camera_info_;
+    shared_ptr<reconfigure_server_t> reconfigure_server_;
 	std::shared_ptr<CameraFrame> frame_;
+	bool configured_;
+	int timeout_ms_;
+	std::mutex mutex_;
 
 public:
 
@@ -100,22 +99,25 @@ public:
 	virtual ~Camera();
 
     sensor_msgs::CameraInfo::ConstPtr get_info() const { return camera_info_; }
-	bool set_master_gain( uint8_t master_gain ); // in [0,100]
-	bool set_exposure( double exposure );
-	bool set_blacklevel( int blacklevel );
-	bool set_gamma( int gamma );
-	bool set_hardware_gamma();
-	
-	void start_capture( bool external_trigger );
-    void start_capture( const CaptureSettings& settings );
+
+    void enable_reconfigure( ros::NodeHandle& reconfigure_nh );
+    void reconfigure_callback( CaptureConfig &config, uint32_t level ) { apply_config(config); }
+    
+	void start_capture();
+    void apply_config( const CaptureConfig& config );
     
 	/**
 	 * Poll next frame
-	 * @param[in] timeout_ms time in milliseconds to wait for a frame event
 	 * @returns pointer to the new frame or NULL if no frame was retrieved
 	 * @throws std::exception if error occurs
 	 */
-	const CameraFrame* get_frame( int timeout_ms );
+	const CameraFrame* get_frame();
+	
+	static bool set_master_gain( DWORD camera_id, uint8_t master_gain ); // in [0,100]
+	static bool set_exposure( DWORD camera_id, double exposure );
+	static bool set_blacklevel( DWORD camera_id, int blacklevel );
+	static bool set_gamma( DWORD camera_id, int gamma );
+	static bool set_hardware_gamma( DWORD camera_id );
 	
 	/*
 	 * Get information about all connected uEye cameras

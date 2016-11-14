@@ -21,8 +21,10 @@ message(STATUS "ueye_api library: ${UEYE_LIBRARY}")
 message(STATUS "ueye_api include: ${UEYE_INCLUDE_DIR}")
 
 find_package(catkin REQUIRED COMPONENTS
-  roscpp image_transport nodelet sensor_msgs camera_calibration_parsers
+  roscpp image_transport nodelet sensor_msgs camera_calibration_parsers dynamic_reconfigure
 )
+
+generate_dynamic_reconfigure_options( ${PROJECT_NAME}.cfg )
 
 catkin_package(
 #  INCLUDE_DIRS include
@@ -36,3 +38,5 @@ include_directories( ${catkin_INCLUDE_DIRS} ${UEYE_INCLUDE_DIR} )
 file( GLOB SOURCES src/*.cpp )
 add_library( ${PROJECT_NAME} ${SOURCES} )
 target_link_libraries( ${PROJECT_NAME} ${catkin_LIBRARIES} ${UEYE_LIBRARY} )
+
+add_dependencies( ${PROJECT_NAME} ${PROJECT_NAME}_gencfg )

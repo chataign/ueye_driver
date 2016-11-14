@@ -1,23 +1,7 @@
 <launch>
   <node pkg="nodelet" type="nodelet" name="standalone_nodelet" args="manager" output="screen"/>
 
-  <node pkg="nodelet" type="nodelet" name="UeyeDriver1" args="load ueye_driver/UeyeDriver standalone_nodelet" output="screen">
+  <node pkg="nodelet" type="nodelet" name="FrontCamera" args="load ueye_driver/UeyeDriver standalone_nodelet" output="screen">
     <param name="serial_no" type="string" value="4102957983"/>
-    <param name="camera_name" value="ueye1" />
-  </node>
-
-  <node pkg="nodelet" type="nodelet" name="UeyeDriver2" args="load ueye_driver/UeyeDriver standalone_nodelet" output="screen">
-    <param name="serial_no" type="string" value="4103065501"/>
-    <param name="camera_name" value="ueye2" />
-  </node>
-
-  <node pkg="nodelet" type="nodelet" name="UeyeDriver3" args="load ueye_driver/UeyeDriver standalone_nodelet" output="screen">
-    <param name="serial_no" type="string" value="4103013873"/>
-    <param name="camera_name" value="ueye3" />
-  </node>
-
-  <node pkg="nodelet" type="nodelet" name="CameraSync" args="load camera_sync/CameraSync standalone_nodelet" output="screen">
-    <rosparam param="image_topics">[/ueye1/image_raw,/ueye2/image_raw,/ueye3/image_raw]</rosparam>
-    <param name="down_rate_hz" value="1" />
   </node>
 </launch>
