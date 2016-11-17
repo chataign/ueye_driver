@@ -28,11 +28,9 @@ namespace ueye
 
 struct DeviceSettings
 {
-    int pixel_clock; // pixel clock in MHz
     std::string color_mode; // ROS color encoding (see sensor_msgs/image_encodings.h)
-    std::string frame_id; // frame ID in ROS image message
-    double frame_rate; // desired frame rate in Hz
-    IS_RECT aoi_rect; // Area Of Interest (AOI) rectangle
+    std::string frame_id;   // frame ID in ROS image message
+    IS_RECT aoi_rect;       // Area Of Interest (AOI) rectangle
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -47,9 +45,9 @@ class Camera;	// forward declaration
 
 class CameraFrame
 {
-	const int camera_id_;
-	int buffer_id_;
-	sensor_msgs::Image::Ptr image_;
+	const int camera_id_; // camera ID from UEYE_CAMERA_INFO
+	int buffer_id_; // image buffer ID
+	sensor_msgs::Image::Ptr image_; // image buffer
 
 public:
 
@@ -57,8 +55,8 @@ public:
 
 	virtual ~CameraFrame();
 
-	ros::Time get_timestamp() const;
-	void update_timestamp() { image_->header.stamp = get_timestamp(); }
+    ros::Time get_timestamp() const;
+	void update_timestamp();
 	sensor_msgs::Image::ConstPtr get_image() const { return image_; }
 };
 
@@ -113,11 +111,13 @@ public:
 	 */
 	const CameraFrame* get_frame();
 	
-	static bool set_master_gain( DWORD camera_id, uint8_t master_gain ); // in [0,100]
-	static bool set_exposure( DWORD camera_id, double exposure );
-	static bool set_blacklevel( DWORD camera_id, int blacklevel );
-	static bool set_gamma( DWORD camera_id, int gamma );
-	static bool set_hardware_gamma( DWORD camera_id );
+	bool set_master_gain( uint8_t master_gain ); // in [0,100]
+	bool set_exposure( double exposure ); // in [1,1000]
+	bool set_blacklevel( int blacklevel );
+	bool set_gamma( int gamma );
+	bool set_hardware_gamma( bool enable );
+	bool set_frame_rate( double rate_hz );
+	bool set_pixel_clock( UINT pixel_clock_Mhz );
 	
 	/*
 	 * Get information about all connected uEye cameras
