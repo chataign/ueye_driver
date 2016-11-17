@@ -7,7 +7,6 @@
 #include <mutex>
 
 #include <ros/ros.h>
-#include <opencv/cv.h>
 #include <ros/time.h>
 #include <ueye.h>
 

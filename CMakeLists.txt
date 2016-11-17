@@ -27,16 +27,24 @@ find_package(catkin REQUIRED COMPONENTS
 generate_dynamic_reconfigure_options( ${PROJECT_NAME}.cfg )
 
 catkin_package(
-#  INCLUDE_DIRS include
+  INCLUDE_DIRS include
 #  LIBRARIES 
-#  CATKIN_DEPENDS roscpp
-#  DEPENDS system_lib
+  CATKIN_DEPENDS roscpp image_transport nodelet sensor_msgs camera_calibration_parsers dynamic_reconfigure
 )
 
-include_directories( ${catkin_INCLUDE_DIRS} ${UEYE_INCLUDE_DIR} )
+include_directories( include ${catkin_INCLUDE_DIRS} ${UEYE_INCLUDE_DIR} )
 
+file( GLOB HEADERS include/${PROJECT_NAME}/*.h )
 file( GLOB SOURCES src/*.cpp )
-add_library( ${PROJECT_NAME} ${SOURCES} )
+
+add_library( ${PROJECT_NAME} ${SOURCES} ${HEADERS} )
 target_link_libraries( ${PROJECT_NAME} ${catkin_LIBRARIES} ${UEYE_LIBRARY} )
 
 add_dependencies( ${PROJECT_NAME} ${PROJECT_NAME}_gencfg )
+
+install(DIRECTORY include/${PROJECT_NAME}/
+  DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
+  FILES_MATCHING PATTERN "*.h"
+  PATTERN ".svn" EXCLUDE
+)
+

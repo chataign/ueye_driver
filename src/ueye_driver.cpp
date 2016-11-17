@@ -1,16 +1,11 @@
 #include <ros/ros.h>
 #include <ros/names.h>
 
-#include <thread>
 #include <memory>
 using namespace std;
 
-#include <opencv/cv.h>
-
-#include <sensor_msgs/CameraInfo.h>
-#include <image_transport/image_transport.h>
-
-#include "ueye_camera.h"
+#include <ueye_driver/ueye_camera.h>
+#include <ueye_driver/capture_thread.h>
 
 #include <nodelet/nodelet.h>
 
@@ -21,15 +16,11 @@ namespace ueye_driver_ns {
 
 class UeyeDriver : public nodelet::Nodelet
 {
-    bool capture_alive_;
-    thread capture_thread_;
     shared_ptr<ueye::Camera> camera_;
+    shared_ptr<ueye::CaptureThread> capture_thread_;
     
 public:
 
-    UeyeDriver(): capture_alive_(false) {}
-    virtual ~UeyeDriver() { stop(); }
-    
     virtual void onInit()
     {
         ros::NodeHandle& priv_nh = getPrivateNodeHandle();
@@ -51,7 +42,6 @@ public:
         priv_nh.param<string>   ( "frame_id",       device_settings.frame_id,               "base_link" );
         priv_nh.param<string>   ( "color_mode",     device_settings.color_mode,             "mono8" );
 
-  	    auto camera_topic = ros::names::clean( camera_name + "/" + topic_name );
 	    auto available_cameras = ueye::Camera::get_camera_list();
 
 	    NODELET_INFO("found %u available cameras, connecting to camera serial='%s'", 
@@ -64,45 +54,17 @@ public:
 		    [&serial_no]( const UEYE_CAMERA_INFO& cam_info ) { return string(cam_info.SerNo) == serial_no; } );
 	
 	    if ( camera_info == available_cameras.end() ) 
-		    { ROS_ERROR("invalid camera id"); return; }
+		    { ROS_ERROR("camera serial='%s' not found", serial_no.c_str() ); return; }
 	      
 	    camera_ = make_shared<ueye::Camera>( *camera_info, device_settings );
         if ( enable_reconfigure ) camera_->enable_reconfigure(priv_nh); // see rqt_reconfigure
 
-        capture_thread_ = thread( bind( &UeyeDriver::capture_loop, this, 
-            camera_topic, ros::Rate(publish_rate) ) );
-    }
-        
-    void capture_loop( string camera_topic, ros::Rate publish_rate )
-    {
-        if ( !camera_ )
-            throw runtime_error("camera hasnt been initialized!");
-            
-	    image_transport::ImageTransport it( getNodeHandle() );
-	    auto pub = it.advertiseCamera( camera_topic, 10 );
+        image_transport::ImageTransport it( getNodeHandle() );
+  	    auto camera_topic = ros::names::clean( camera_name + "/" + topic_name );
+        auto camera_pub = it.advertiseCamera( camera_topic, 10 );
 
-        NODELET_INFO("starting capture thread");
-        camera_->start_capture();
-        capture_alive_ = true;
-
-        while ( capture_alive_ && ros::ok() )
-	    {
-		    const ueye::CameraFrame* frame = camera_->get_frame();
-		    if (frame) pub.publish( frame->get_image(), camera_->get_info() );
-
-		    publish_rate.sleep();
-	    }
-    }
-
-    void stop()
-    {
-        capture_alive_ = false;
-        
-        if ( capture_thread_.joinable() )
-            capture_thread_.join();
-
-        NODELET_INFO("stopped capture thread");
-        capture_thread_ = thread();
+        capture_thread_ = make_shared<ueye::CaptureThread>( *camera_ );
+        capture_thread_->start( camera_pub, ros::Rate(publish_rate) );
     }
 };
 

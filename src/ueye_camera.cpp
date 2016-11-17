@@ -7,7 +7,7 @@ using namespace std;
 #include <nodelet/nodelet.h>
 #include <sensor_msgs/image_encodings.h>
 
-#include "ueye_camera.h"
+#include <ueye_driver/ueye_camera.h>
 
 namespace ueye
 {
