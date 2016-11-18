@@ -84,11 +84,6 @@ public:
 
 	/**
 	 * Constructor
-	 * @param[in] camera_id ID in [1-254] of camera to connect to (0: first available camera)
-	 * @param[in] frame_rate desired frame rate
-	 * @param[in] encoding ROS color encoding (see sensor_msgs/image_encodings.h)
-	 * @param[in] pixel_clock pixel clock in MHz
-	 * @param[in] aoi_rect Area Of Interest (AOI) rectangle
 	 * @throws std::exception if connection to camera fails
 	 */
 	Camera( const UEYE_CAMERA_INFO& device_info, const DeviceSettings& device_settings );
@@ -97,6 +92,8 @@ public:
 
     sensor_msgs::CameraInfo::ConstPtr get_info() const { return camera_info_; }
 
+    // enable dynamic_reconfigure server, to allow live 
+    // configuration of the camera settings using rqt_reconfigure
     void enable_reconfigure( ros::NodeHandle& reconfigure_nh );
     void reconfigure_callback( CaptureConfig &config, uint32_t level ) { apply_config(config); }
     
@@ -110,13 +107,30 @@ public:
 	 */
 	const CameraFrame* get_frame();
 	
-	bool set_master_gain( uint8_t master_gain ); // in [0,100]
+	IS_RECT get_aoi() const;
+    double get_exposure() const;
+    int get_blacklevel() const;
+    INT get_gamma() const;
+    double get_framerate() const;
+    bool get_gain_boost() const;
+    UINT get_pixelclock() const;
+    UINT get_hardware_gain() const;
+
+    IS_RANGE_F64 get_exposure_range() const;
+    IS_RANGE_S32 get_blacklevel_range() const;
+    IS_RANGE_F64 get_framerate_range() const;
+    IS_RANGE_S32 get_pixelclock_range() const;
+    	
+	bool set_aoi( const IS_RECT& aoi );
 	bool set_exposure( double exposure ); // in [1,1000]
+	bool set_hardware_gain( uint8_t hardware_gain ); // in [0,100]
 	bool set_blacklevel( int blacklevel );
-	bool set_gamma( int gamma );
+	bool set_gamma( INT gamma );
 	bool set_hardware_gamma( bool enable );
-	bool set_frame_rate( double rate_hz );
-	bool set_pixel_clock( UINT pixel_clock_Mhz );
+	bool set_framerate( double framerate ); // Hz
+	bool set_pixelclock( UINT pixelclock ); // Mhz
+    bool set_gain_boost( bool enable );
+	bool set_color_mode( const std::string& color_mode );
 	
 	/*
 	 * Get information about all connected uEye cameras

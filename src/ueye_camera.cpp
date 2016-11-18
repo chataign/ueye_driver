@@ -14,6 +14,9 @@ namespace ueye
 #define UEYE_TRY( FUNC, ... ) { INT err = (FUNC)(__VA_ARGS__); if ( err != IS_SUCCESS ) { \
 	throw runtime_error( string(#FUNC)+" failed, error="+to_string(err) ); } }
 
+#define CAM_INFO( FORMAT, ... ) ROS_INFO( "[%s]" # FORMAT, device_info_.SerNo, __VA_ARGS__ )
+#define CAM_WARN( FORMAT, ... ) ROS_WARN( "[%s]" # FORMAT, device_info_.SerNo, __VA_ARGS__ )
+
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -38,23 +41,11 @@ Camera::Camera( const UEYE_CAMERA_INFO& device_info, const DeviceSettings& devic
 	, configured_(false)
 	, timeout_ms_(0)
 {
-	ROS_INFO("opening camera id=%d serial=%s", device_info_.dwCameraID, device_info_.SerNo );
+	CAM_INFO("opening camera id=%d", device_info_.dwCameraID );
 	UEYE_TRY( is_InitCamera, (HIDS*) &device_info_.dwCameraID, NULL );
 
-    auto color_mode = color_modes.at(device_settings.color_mode).ueye_mode;
-    
-	UEYE_TRY( is_SetDisplayMode, device_info_.dwCameraID, IS_SET_DM_DIB );
-	UEYE_TRY( is_SetColorMode, device_info_.dwCameraID, color_mode );
-	ROS_INFO("set color mode=%s (%d)", device_settings.color_mode.c_str(), color_mode );
-
-	ROS_INFO("AOI: tl=(%d,%d) width=%d height=%d", 
-	    device_settings.aoi_rect.s32X, 
-	    device_settings.aoi_rect.s32Y, 
-	    device_settings.aoi_rect.s32Width, 
-	    device_settings.aoi_rect.s32Height );
-
-	UEYE_TRY( is_AOI, device_info_.dwCameraID, IS_AOI_IMAGE_SET_AOI, 
-	    (void*)&device_settings.aoi_rect, sizeof(device_settings.aoi_rect) );
+    set_color_mode(device_settings.color_mode);
+    set_aoi(device_settings.aoi_rect);
 
 	frame_ = make_shared<CameraFrame>( *this, device_settings );
 }
@@ -111,10 +102,10 @@ void Camera::apply_config( const CaptureConfig& config )
     // 2. Query frame rate range and, if applicable, set new value.
     // 3. Query exposure time range and, if applicable, set new value.
 
-    set_pixel_clock( config.pixel_clock );
-    set_frame_rate( config.frame_rate );
+    set_pixelclock( config.pixelclock );
+    set_framerate( config.framerate );
     set_exposure( config.exposure );
-    set_master_gain( config.master_gain );
+    set_hardware_gain( config.hardware_gain );
     set_blacklevel( config.blacklevel );
     set_gamma( config.gamma );
     set_hardware_gamma( config.hardware_gamma );
@@ -151,20 +142,131 @@ const CameraFrame* Camera::get_frame()
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
+bool Camera::set_color_mode( const string& color_mode )
+{
+    auto umode = color_modes.at(color_mode).ueye_mode;
+    
+	UEYE_TRY( is_SetDisplayMode, device_info_.dwCameraID, IS_SET_DM_DIB );
+	INT res = is_SetColorMode( device_info_.dwCameraID, umode );
+
+	switch( res )
+	{
+	    case IS_SUCCESS:
+        	CAM_INFO("set color mode=%s (%d)", color_mode.c_str(), umode );
+	        return true;
+        case IS_NOT_SUPPORTED:
+        case IS_INVALID_PARAMETER:
+	        ROS_WARN("color mode=%s not supported", color_mode.c_str() );
+	        return false;
+        default:
+            throw runtime_error("unknown error=" + to_string(res) + " setting color mode=" + color_mode );
+	}
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+IS_RECT Camera::get_aoi() const
+{
+    IS_RECT aoi;
+    UEYE_TRY( is_AOI, device_info_.dwCameraID, IS_AOI_IMAGE_GET_AOI, (void*)&aoi, sizeof(aoi) );
+    return aoi;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+bool Camera::set_aoi( const IS_RECT& aoi )
+{
+    CAM_INFO("setting AOI: tl=(%d,%d) width=%d height=%d", 
+        aoi.s32X, aoi.s32Y, aoi.s32Width, aoi.s32Height );
+
+	INT res = is_AOI( device_info_.dwCameraID, IS_AOI_IMAGE_SET_AOI, (void*)&aoi, sizeof(aoi) );
+
+	switch( res )
+	{
+	    case IS_SUCCESS:
+	        return true;
+        case IS_NOT_SUPPORTED:
+	        ROS_WARN("AOI not supported");
+	        return false;
+	    case IS_INVALID_PARAMETER:
+	        ROS_WARN("requested AOI is invalid");
+	        return false;
+        default:
+            throw runtime_error("unknown error=" + to_string(res) + " setting AOI");
+	}
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+double Camera::get_exposure() const
+{
+    double exposure;
+	UEYE_TRY( is_Exposure, device_info_.dwCameraID, IS_EXPOSURE_CMD_GET_EXPOSURE, 
+	    (void*)&exposure, sizeof(exposure));
+	return exposure;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+IS_RANGE_F64 Camera::get_exposure_range() const
+{
+    IS_RANGE_F64 range;
+	UEYE_TRY( is_Exposure, device_info_.dwCameraID, IS_EXPOSURE_CMD_GET_EXPOSURE_RANGE, 
+	    (void*)&range, sizeof(range) );
+	return range;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
 bool Camera::set_exposure( double exposure )
 {
-	double max_exposure;
-	//Set the exposure time. First see what's the maximum (it varies with framerate)
-	UEYE_TRY(is_Exposure, device_info_.dwCameraID, IS_EXPOSURE_CMD_GET_EXPOSURE_RANGE_MAX,
-			(void*)&max_exposure, sizeof(max_exposure));
-	ROS_INFO("Maximum exposure (given by frame rate) is %.1f", max_exposure);
+	INT res = is_Exposure( device_info_.dwCameraID, IS_EXPOSURE_CMD_SET_EXPOSURE,
+			(void*)&exposure, sizeof(exposure) );
 
-	//Set the exposure time it to this maximum.
-	UEYE_TRY(is_Exposure, device_info_.dwCameraID, IS_EXPOSURE_CMD_SET_EXPOSURE,
-			(void*)&exposure, sizeof(exposure));
-	ROS_INFO("[%s] Exposure set to %.1f", device_info_.SerNo, exposure);
+	switch( res )
+	{
+	    case IS_SUCCESS:
+	        return true;
+        case IS_NOT_SUPPORTED:
+	        ROS_WARN("exposure not supported");
+	        return false;
+	    case IS_INVALID_PARAMETER:
+	    {
+            auto range = get_exposure_range();
+	        ROS_WARN("requested exposure=%.1f is invalid (min=%.1f max=%.1f)", 
+	            exposure, range.f64Min, range.f64Max );
+	        return false;
+        }
+        default:
+            throw runtime_error("unknown error=" + to_string(res) + " setting exposure");
+	}
+}
 
-	return true;
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+int Camera::get_blacklevel() const
+{
+    int blacklevel;
+	UEYE_TRY( is_Blacklevel, device_info_.dwCameraID, IS_BLACKLEVEL_CMD_GET_OFFSET,
+			(void*)&blacklevel, sizeof(blacklevel) );
+	return blacklevel;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+IS_RANGE_S32 Camera::get_blacklevel_range() const
+{
+    IS_RANGE_S32 range;
+    UEYE_TRY( is_Blacklevel, device_info_.dwCameraID, IS_BLACKLEVEL_CMD_GET_OFFSET_RANGE, 
+        (void*)&range, sizeof(range) );
+    return range;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -172,12 +274,37 @@ bool Camera::set_exposure( double exposure )
 
 bool Camera::set_blacklevel( int blacklevel )
 {
-	//Set the new offset
-	UEYE_TRY(is_Blacklevel, device_info_.dwCameraID, IS_BLACKLEVEL_CMD_SET_OFFSET,
-			(void*)&blacklevel, sizeof(blacklevel));
-	ROS_INFO("[%s] Black level offset set to %d", device_info_.SerNo, blacklevel);
+	INT res = is_Blacklevel( device_info_.dwCameraID, IS_BLACKLEVEL_CMD_SET_OFFSET, 
+	    (void*)&blacklevel, sizeof(blacklevel) );
+	
+	switch( res )
+	{
+	    case IS_SUCCESS:
+	        return true;
+        case IS_NOT_SUPPORTED:
+	        ROS_WARN("blacklevel not supported");
+	        return false;
+	    case IS_INVALID_PARAMETER:
+	    {
+            auto range = get_blacklevel_range();
+	        ROS_WARN("requested blacklevel=%d is invalid (min=%d max=%d)", 
+	            blacklevel, range.s32Min, range.s32Max );
+	        return false;
+        }
+        default:
+            throw runtime_error("unknown error=" + to_string(res) + " setting blacklevel");
+	}
+}
 
-	return true;
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+INT Camera::get_gamma() const
+{
+	INT gamma;
+	UEYE_TRY( is_Gamma, device_info_.dwCameraID, IS_GAMMA_CMD_GET, 
+	    (void*)&gamma, sizeof(gamma) );
+	return gamma;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -185,59 +312,132 @@ bool Camera::set_blacklevel( int blacklevel )
 
 bool Camera::set_gamma( INT gamma )
 {
-	ROS_INFO("[%s] Setting software gamma to %d", device_info_.SerNo, gamma );
+	INT res = is_Gamma( device_info_.dwCameraID, IS_GAMMA_CMD_SET, 
+	    (void*)&gamma, sizeof(gamma) );
 	
-	//Set software gamma. Hardware gamma correction should suffice
-	UEYE_TRY(is_Gamma, device_info_.dwCameraID, IS_GAMMA_CMD_SET, (void*) &gamma, sizeof(gamma));
-	INT gamma_get;
-	UEYE_TRY(is_Gamma, device_info_.dwCameraID, IS_GAMMA_CMD_GET, (void*) &gamma_get, sizeof(gamma_get));
-	
-	if ( gamma_get != gamma ) ROS_WARN("Failed to set software gamma: requested=%d actual=%d", gamma, gamma_get);
-
-	return true;
+	switch( res )
+	{
+	    case IS_SUCCESS:
+	        return true;
+        case IS_NOT_SUPPORTED:
+	        ROS_WARN("gamma not supported");
+	        return false;
+	    case IS_INVALID_PARAMETER:
+	        ROS_WARN("requested gamma=%d is invalid (range=[1,1000])", (int)gamma );
+	        return false;
+        default:
+            throw runtime_error("unknown error=" + to_string(res) + " setting gamma");
+	}
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-bool Camera::set_frame_rate( double frame_rate )
+double Camera::get_framerate() const
 {
-	//Set the frame rate. First, see what's the maximum (it varies with pixelclock)
+	double framerate=0;
+	UEYE_TRY( is_SetFrameRate, device_info_.dwCameraID, IS_GET_FRAMERATE, &framerate );
+	return framerate;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+IS_RANGE_F64 Camera::get_framerate_range() const
+{
 	double min_time, max_time, interval;
-	UEYE_TRY(is_GetFrameTimeRange, device_info_.dwCameraID, &min_time, &max_time, &interval );
-	ROS_INFO("Maximum possible frame rate: %.1fHz", 1/min_time);
-
-	double actual_rate=0;
-	UEYE_TRY(is_SetFrameRate, device_info_.dwCameraID, frame_rate, &actual_rate );
-	ROS_INFO("[%s] frame rate: requested=%.1fHz actual=%.1fHz", device_info_.SerNo, frame_rate, actual_rate );
+	UEYE_TRY( is_GetFrameTimeRange, device_info_.dwCameraID, &min_time, &max_time, &interval );
 	
-	return ( frame_rate == actual_rate );
+	IS_RANGE_F64 range;
+	range.f64Min = 1/min_time;
+	range.f64Max = 1/max_time;
+	range.f64Inc = 1/interval;
+	
+	return range;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-bool Camera::set_pixel_clock( UINT pixel_clock )
+bool Camera::set_framerate( double framerate )
 {
-	try { UEYE_TRY(is_PixelClock, device_info_.dwCameraID, IS_PIXELCLOCK_CMD_SET, 
-		(void*)&pixel_clock, sizeof(pixel_clock) ) }
-	catch( const exception& e ) { ROS_WARN( "failed to set pixel clock: %s", e.what() ); return false; }
+	double actual_framerate=0;
+	INT res = is_SetFrameRate( device_info_.dwCameraID, framerate, &actual_framerate );
+	
+	switch( res )
+	{
+	    case IS_SUCCESS:
+	        CAM_INFO("set framerate=%.1fHz", actual_framerate );
+	        return true;
+	    case IS_INVALID_PARAMETER:
+	    {
+	        auto range = get_framerate_range();
+	        ROS_WARN("requested framerate=%.1f is invalid (range=[%.1f,%.1f])", 
+	            framerate, range.f64Min, range.f64Max );
+	        return false;
+        }
+        default:
+            throw runtime_error("unknown error=" + to_string(res) + " setting framerate");
+	}
+}
 
-    UINT pixel_clock_range[3]; // [ min, max, increment ]
-    ZeroMemory( pixel_clock_range, sizeof(pixel_clock_range) );
-     
-    UEYE_TRY( is_PixelClock, device_info_.dwCameraID, IS_PIXELCLOCK_CMD_GET_RANGE, 
-        (void*)pixel_clock_range, sizeof(pixel_clock_range) );
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 
-    UINT pixel_clock_actual; 
+UINT Camera::get_pixelclock() const
+{
+    UINT pixelclock; 
 
     UEYE_TRY( is_PixelClock, device_info_.dwCameraID, IS_PIXELCLOCK_CMD_GET, 
-        (void*)&pixel_clock_actual, sizeof(pixel_clock_actual) );
+        (void*)&pixelclock, sizeof(pixelclock) );
+            
+    return pixelclock;
+}
 
-	ROS_INFO("pixel clock: requested=%dMHz actual=%d (min=%u max=%u)", 
-	    pixel_clock, pixel_clock_actual, pixel_clock_range[0], pixel_clock_range[1] );
-	    
-    return true;
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+IS_RANGE_S32 Camera::get_pixelclock_range() const
+{
+    UINT pixelclock_range[3]; // [ min, max, increment ]
+    ZeroMemory( pixelclock_range, sizeof(pixelclock_range) );
+     
+    UEYE_TRY( is_PixelClock, device_info_.dwCameraID, IS_PIXELCLOCK_CMD_GET_RANGE, 
+        (void*)pixelclock_range, sizeof(pixelclock_range) );
+
+    IS_RANGE_S32 range;
+    range.s32Min = pixelclock_range[0];
+    range.s32Max = pixelclock_range[1];
+    range.s32Inc = pixelclock_range[2];
+    
+    return range;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+bool Camera::set_pixelclock( UINT pixelclock )
+{
+	INT res = is_PixelClock( device_info_.dwCameraID, IS_PIXELCLOCK_CMD_SET, (void*)&pixelclock, sizeof(pixelclock) );
+
+	switch( res )
+	{
+	    case IS_SUCCESS:
+	        CAM_INFO( "set pixelclock=%dMHz", (int)pixelclock );
+	        return true;
+        case IS_NOT_SUPPORTED:
+	        ROS_WARN("pixelclock not supported");
+	        return false;
+	    case IS_INVALID_PARAMETER:
+	    {
+	        auto range = get_pixelclock_range();
+	        ROS_WARN("requested pixelclock=%d is invalid (range=[%d,%d])", 
+	            (int)pixelclock, range.s32Min, range.s32Max );
+	        return false;
+        }
+        default:
+            throw runtime_error("unknown error=" + to_string(res) + " setting pixelclock");
+	}
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -245,37 +445,83 @@ bool Camera::set_pixel_clock( UINT pixel_clock )
 
 bool Camera::set_hardware_gamma( bool enable )
 {
-	if ( is_SetHardwareGamma( device_info_.dwCameraID, IS_GET_HW_SUPPORTED_GAMMA ) != IS_SET_HW_GAMMA_ON )
-		{ ROS_WARN("[%s] hardware gamma not supported", device_info_.SerNo ); return false; }
+	INT res = is_SetHardwareGamma( device_info_.dwCameraID, enable ? IS_SET_HW_GAMMA_ON : IS_SET_HW_GAMMA_OFF );
 
-	ROS_INFO("[%s] setting hardware gamma %s", device_info_.SerNo, enable ? "ON" : "OFF" );
-	UEYE_TRY( is_SetHardwareGamma, device_info_.dwCameraID, enable ? IS_SET_HW_GAMMA_ON : IS_SET_HW_GAMMA_OFF );
-
-	return true;
+	switch( res )
+	{
+	    case IS_SUCCESS:
+	        CAM_INFO("set hardware gamma %s", enable ? "ON" : "OFF" );
+	        return true;
+        case IS_NOT_SUPPORTED:
+	        ROS_WARN("hardware gamma not supported");
+	        return false;
+        default:
+            throw runtime_error("unknown error=" + to_string(res) + " setting hardware gamma");
+	}
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
-bool Camera::set_master_gain( uint8_t master_gain )
+bool Camera::get_gain_boost() const
 {
-	if ( is_SetGainBoost( device_info_.dwCameraID, IS_GET_SUPPORTED_GAINBOOST ) != IS_SET_GAINBOOST_ON )
-		{ ROS_WARN("[%s] hardware gain boost not supported", device_info_.SerNo ); return false; }
+	return is_SetGainBoost( device_info_.dwCameraID, IS_GET_GAINBOOST ) == IS_SET_GAINBOOST_ON;
+}
 
-	if ( master_gain == 0 )	// disable gain
-	{
-		UEYE_TRY( is_SetGainBoost, device_info_.dwCameraID, IS_SET_GAINBOOST_OFF );
-		ROS_INFO( "[%s] hardware gain boost disabled", device_info_.SerNo );
-	}
-	else
-	{
-		ROS_INFO( "[%s] master gain set to %d, gain boost activated", device_info_.SerNo, master_gain );
-		UEYE_TRY( is_SetGainBoost, device_info_.dwCameraID, IS_SET_GAINBOOST_ON );
-		UEYE_TRY( is_SetHardwareGain, device_info_.dwCameraID, master_gain,
-			IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER );
-	}
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 
-	return true;
+bool Camera::set_gain_boost( bool enable )
+{
+	INT res = is_SetGainBoost( device_info_.dwCameraID, enable ? IS_SET_GAINBOOST_ON : IS_SET_GAINBOOST_OFF );
+
+	switch( res )
+	{
+	    case IS_SUCCESS:
+	        CAM_INFO("set gain boost %s", enable ? "ON" : "OFF" );
+	        return true;
+        case IS_NOT_SUPPORTED:
+	        ROS_WARN("gain boost not supported");
+	        return false;
+        default:
+            throw runtime_error("unknown error=" + to_string(res) + " setting gain boost");
+	}
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+UINT Camera::get_hardware_gain() const
+{
+	return is_SetHardwareGain( device_info_.dwCameraID, IS_GET_MASTER_GAIN,
+	    IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER );
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
+bool Camera::set_hardware_gain( uint8_t hardware_gain )
+{
+    bool gain_boost = ( hardware_gain > 0 );
+    if ( !set_gain_boost(gain_boost) ) return false;
+
+	INT res = is_SetHardwareGain( device_info_.dwCameraID, hardware_gain,
+		IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER, IS_IGNORE_PARAMETER );
+
+	switch( res )
+	{
+	    case IS_SUCCESS:
+	        CAM_INFO("set hardware gain=%d", (int)hardware_gain );
+	        return true;
+        case IS_NOT_SUPPORTED:
+	        ROS_WARN("hardware gain not supported");
+	        return false;
+        case IS_INVALID_PARAMETER:
+	        ROS_WARN("requested hardware gain=%d is invalid (range=[0,100])", hardware_gain );
+            return false;
+        default:
+            throw runtime_error("unknown error=" + to_string(res) + " setting gain boost");
+	}
 }
 
 ////////////////////////////////////////////////////////////////////////////////

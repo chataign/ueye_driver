@@ -54,11 +54,21 @@ public:
 		    [&serial_no]( const UEYE_CAMERA_INFO& cam_info ) { return string(cam_info.SerNo) == serial_no; } );
 	
 	    if ( camera_info == available_cameras.end() ) 
-		    { ROS_ERROR("camera serial='%s' not found", serial_no.c_str() ); return; }
+		    { NODELET_ERROR("camera serial='%s' not found", serial_no.c_str() ); return; }
 	      
 	    camera_ = make_shared<ueye::Camera>( *camera_info, device_settings );
-        if ( enable_reconfigure ) camera_->enable_reconfigure(priv_nh); // see rqt_reconfigure
+	    // optionally enable live configuration of the camera settings using rqt_reconfigure
+	    // if reconfigure is disabled, the camera will simply use the existing settings
+        if ( enable_reconfigure ) camera_->enable_reconfigure(priv_nh);
 
+        NODELET_INFO("camera config: pixelclock=%dMhz framerate=%.1fHz gamma=%d blacklevel=%d exposure=%.1f hwgain=%d", 
+            camera_->get_pixelclock(), 
+            camera_->get_framerate(), 
+            camera_->get_gamma(), 
+            camera_->get_blacklevel(),
+            camera_->get_exposure(),
+            camera_->get_hardware_gain() );
+        
         image_transport::ImageTransport it( getNodeHandle() );
   	    auto camera_topic = ros::names::clean( camera_name + "/" + topic_name );
         auto camera_pub = it.advertiseCamera( camera_topic, 10 );
