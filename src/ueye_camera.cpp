@@ -14,8 +14,8 @@ namespace ueye
 #define UEYE_TRY( FUNC, ... ) { INT err = (FUNC)(__VA_ARGS__); if ( err != IS_SUCCESS ) { \
 	throw runtime_error( string(#FUNC)+" failed, error="+to_string(err) ); } }
 
-#define CAM_INFO( FORMAT, ... ) ROS_INFO( "[%s]" # FORMAT, device_info_.SerNo, __VA_ARGS__ )
-#define CAM_WARN( FORMAT, ... ) ROS_WARN( "[%s]" # FORMAT, device_info_.SerNo, __VA_ARGS__ )
+#define CAM_INFO( FORMAT, ... ) ROS_INFO( "[cam=%s]" # FORMAT, device_info_.SerNo, __VA_ARGS__ )
+#define CAM_WARN( FORMAT, ... ) ROS_WARN( "[cam=%s]" # FORMAT, device_info_.SerNo, __VA_ARGS__ )
 
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -228,20 +228,21 @@ bool Camera::set_exposure( double exposure )
 	INT res = is_Exposure( device_info_.dwCameraID, IS_EXPOSURE_CMD_SET_EXPOSURE,
 			(void*)&exposure, sizeof(exposure) );
 
+    auto exposure_range = get_exposure_range();
+
 	switch( res )
 	{
 	    case IS_SUCCESS:
+	        CAM_INFO("set exposure=%.1f (min=%.1f max=%.1f)", 
+	            exposure, exposure_range.f64Min, exposure_range.f64Max );
 	        return true;
         case IS_NOT_SUPPORTED:
-	        ROS_WARN("exposure not supported");
+	        CAM_WARN("exposure not supported (requested=%.1f)", exposure );
 	        return false;
 	    case IS_INVALID_PARAMETER:
-	    {
-            auto range = get_exposure_range();
-	        ROS_WARN("requested exposure=%.1f is invalid (min=%.1f max=%.1f)", 
-	            exposure, range.f64Min, range.f64Max );
+	        CAM_WARN("requested exposure=%.1f is invalid (min=%.1f max=%.1f)", 
+	            exposure, exposure_range.f64Min, exposure_range.f64Max );
 	        return false;
-        }
         default:
             throw runtime_error("unknown error=" + to_string(res) + " setting exposure");
 	}
@@ -318,12 +319,13 @@ bool Camera::set_gamma( INT gamma )
 	switch( res )
 	{
 	    case IS_SUCCESS:
+	        CAM_INFO("set gamma=%d, range=[1,1000]", gamma );
 	        return true;
         case IS_NOT_SUPPORTED:
 	        ROS_WARN("gamma not supported");
 	        return false;
 	    case IS_INVALID_PARAMETER:
-	        ROS_WARN("requested gamma=%d is invalid (range=[1,1000])", (int)gamma );
+	        CAM_WARN("requested gamma=%d is invalid (range=[1,1000])", (int)gamma );
 	        return false;
         default:
             throw runtime_error("unknown error=" + to_string(res) + " setting gamma");
@@ -349,8 +351,8 @@ IS_RANGE_F64 Camera::get_framerate_range() const
 	UEYE_TRY( is_GetFrameTimeRange, device_info_.dwCameraID, &min_time, &max_time, &interval );
 	
 	IS_RANGE_F64 range;
-	range.f64Min = 1/min_time;
-	range.f64Max = 1/max_time;
+	range.f64Min = 1/max_time;
+	range.f64Max = 1/min_time;
 	range.f64Inc = 1/interval;
 	
 	return range;
@@ -361,21 +363,20 @@ IS_RANGE_F64 Camera::get_framerate_range() const
 
 bool Camera::set_framerate( double framerate )
 {
-	double actual_framerate=0;
-	INT res = is_SetFrameRate( device_info_.dwCameraID, framerate, &actual_framerate );
-	
+	double framerate_actual=0;
+	INT res = is_SetFrameRate( device_info_.dwCameraID, framerate, &framerate_actual );
+	auto framerate_range = get_framerate_range();
+	        
 	switch( res )
 	{
 	    case IS_SUCCESS:
-	        CAM_INFO("set framerate=%.1fHz", actual_framerate );
+	        CAM_INFO("set framerate=%.1fHz requested=%.1f (min=%.1f max=%.1f)", 
+	            framerate_actual, framerate, framerate_range.f64Min, framerate_range.f64Max );
 	        return true;
 	    case IS_INVALID_PARAMETER:
-	    {
-	        auto range = get_framerate_range();
 	        ROS_WARN("requested framerate=%.1f is invalid (range=[%.1f,%.1f])", 
-	            framerate, range.f64Min, range.f64Max );
+	            framerate, framerate_range.f64Min, framerate_range.f64Max );
 	        return false;
-        }
         default:
             throw runtime_error("unknown error=" + to_string(res) + " setting framerate");
 	}
@@ -431,8 +432,8 @@ bool Camera::set_pixelclock( UINT pixelclock )
 	    case IS_INVALID_PARAMETER:
 	    {
 	        auto range = get_pixelclock_range();
-	        ROS_WARN("requested pixelclock=%d is invalid (range=[%d,%d])", 
-	            (int)pixelclock, range.s32Min, range.s32Max );
+	        ROS_WARN("requested pixelclock=%d is invalid (range=[%d,%d] inc=%d)", 
+	            (int)pixelclock, range.s32Min, range.s32Max, range.s32Inc );
 	        return false;
         }
         default:

@@ -55,7 +55,7 @@ public:
 	virtual ~CameraFrame();
 
     ros::Time get_timestamp() const;
-	void update_timestamp();
+	void update_timestamp() { image_->header.stamp = get_timestamp(); }
 	sensor_msgs::Image::ConstPtr get_image() const { return image_; }
 };
 
