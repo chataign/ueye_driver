@@ -20,6 +20,8 @@ endif()
 message(STATUS "ueye_api library: ${UEYE_LIBRARY}")
 message(STATUS "ueye_api include: ${UEYE_INCLUDE_DIR}")
 
+find_package( OpenCV REQUIRED )
+
 find_package(catkin REQUIRED COMPONENTS
   roscpp image_transport sensor_msgs camera_calibration_parsers
 )
@@ -31,7 +33,7 @@ catkin_package(
 #  DEPENDS system_lib
 )
 
-include_directories( ${catkin_INCLUDE_DIRS} ${UEYE_INCLUDE_DIR} )
+include_directories( ${catkin_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS} ${UEYE_INCLUDE_DIR} )
 
 file( GLOB SOURCES src/*.cpp )
 add_executable( ${PROJECT_NAME} ${SOURCES} )
